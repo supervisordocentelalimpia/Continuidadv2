@@ -1,5 +1,5 @@
 // src/utils/parseCevazPdf.js
-import { extractTextFromPdf } from "./pdfText";
+import extractTextFromPdf from "./pdfText";
 
 const HORARIO_BLOQUES = [
   "8:30 AM - 10:00 AM",
@@ -62,11 +62,10 @@ const normalizeHorario = (raw) => {
   return mapped || candidate;
 };
 
-// 1. NUEVA FUNCIÓN EXTRACTORA INDESTRUCTIBLE
 const extractMetaFromLine = (line, meta) => {
   const up = line.toUpperCase();
 
-  // Categoría: Busca en cualquier parte de la línea, no solo al inicio
+  // Categoría: Busca en cualquier parte de la línea
   if (up.includes("CATEGORÍA:") || up.includes("CATEGORIA:")) {
     const parts = up.split(/CATEGOR[IÍ]A:/);
     const raw = parts[1].trim(); 
@@ -190,7 +189,6 @@ export async function parseCevazPdf(file) {
     courseId: "",
   };
 
-  // 2. FILTRO GLOBAL DE SEGURIDAD (Si falla la línea, lee el texto completo)
   const fullTextUp = (text || "").toUpperCase();
   if (fullTextUp.includes("CATEGORÍA: CEVAZ PRESENCIAL JOVENES") || fullTextUp.includes("CATEGORIA: CEVAZ PRESENCIAL JOVENES")) {
      meta.category = "Jóvenes";
