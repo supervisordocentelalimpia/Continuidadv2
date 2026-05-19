@@ -1,5 +1,5 @@
 // src/utils/parseCevazPdf.js
-import extractTextFromPdf from "./pdfText";
+import { extractTextFromPdf } from "./pdfText";
 
 const HORARIO_BLOQUES = [
   "8:30 AM - 10:00 AM",
@@ -65,13 +65,11 @@ const normalizeHorario = (raw) => {
 const extractMetaFromLine = (line, meta) => {
   const up = line.toUpperCase();
 
-  // Categoría: Busca en cualquier parte de la línea
   if (up.includes("CATEGORÍA:") || up.includes("CATEGORIA:")) {
     const parts = up.split(/CATEGOR[IÍ]A:/);
     const raw = parts[1].trim(); 
     meta.categoryRaw = raw;
     
-    // Filtro estricto sobre el valor real de la celda
     if (raw.includes("ADULT")) {
       meta.category = "Adultos";
     } else if (raw.includes("JOVEN") || raw.includes("JÓVEN")) {
@@ -83,21 +81,18 @@ const extractMetaFromLine = (line, meta) => {
     }
   }
 
-  // Nivel
   if (up.includes("NIVEL:")) {
     const parts = up.split("NIVEL:");
     meta.levelRaw = parts[1].trim();
     meta.levelNorm = normalizeLevel(meta.levelRaw);
   }
 
-  // Horario
   if (up.includes("HORARIO:")) {
     const parts = up.split("HORARIO:");
     meta.scheduleRaw = parts[1].trim();
     meta.scheduleBlock = normalizeHorario(meta.scheduleRaw);
   }
 
-  // Salón
   if (up.includes("SALÓN:") || up.includes("SALON:")) {
     meta.salonRaw = up;
     const m = up.match(/SAL[ÓO]N:\s*([A-Z0-9]+).*CURSO\s*ID:\s*(\d+)/i);
@@ -190,7 +185,9 @@ export async function parseCevazPdf(file) {
   };
 
   const fullTextUp = (text || "").toUpperCase();
-  if (fullTextUp.includes("CATEGORÍA: CEVAZ PRESENCIAL JOVENES") || fullTextUp.includes("CATEGORIA: CEVAZ PRESENCIAL JOVENES")) {
+  
+  // FILTRO ESTRICTO: Lee el cuerpo completo del documento para determinar la categoría
+  if (fullTextUp.includes("PRESENCIAL JOVENES") || fullTextUp.includes("PRESENCIAL JÓVENES")) {
      meta.category = "Jóvenes";
   } else if (fullTextUp.includes("PRESENCIAL ADULTOS")) {
      meta.category = "Adultos";
