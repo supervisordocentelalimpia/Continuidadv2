@@ -26,27 +26,6 @@ const normalizeLevel = (raw) => {
   return `L${m[1].padStart(2, "0")}`;
 };
 
-const normalizeCategory = (raw, fileName = "") => {
-  const rawUp = (raw || "").toUpperCase();
-
-  // 1. Fuente de verdad principal: lo que dice exactamente la celda "Categoría" en el PDF
-  if (rawUp.includes("ADULT")) return "Adultos";
-  if (rawUp.includes("JOV") || rawUp.includes("YOUNG") || rawUp.includes("TEEN")) return "Jóvenes";
-  if (rawUp.includes("KIDS") || rawUp.includes("NIÑ") || rawUp.includes("NIN")) return "Niños";
-
-  // 2. Plan de respaldo: si la celda vino vacía, buscamos en el nombre del archivo, 
-  // pero con mayor precisión para no confundir "NIN_JOV"
-  const fileUp = (fileName || "").toUpperCase();
-  if (fileUp.includes("PRESENCIAL JOVENES")) return "Jóvenes";
-  if (fileUp.includes("PRESENCIAL NIÑOS") || fileUp.includes("PRESENCIAL NINOS")) return "Niños";
-  
-  if (fileUp.includes("ADULT")) return "Adultos";
-  if (fileUp.includes("JOV") || fileUp.includes("YOUNG") || fileUp.includes("TEEN")) return "Jóvenes";
-  if (fileUp.includes("KIDS") || fileUp.includes("NIÑ") || fileUp.includes("NIN")) return "Niños";
-
-  return raw ? raw.trim() : "Otra";
-};
-
 const inferStartMeridiem = (startHour, endMer) => {
   if (endMer === "AM") return "AM";
   if (startHour >= 8 && startHour <= 11) return "AM";
@@ -55,9 +34,8 @@ const inferStartMeridiem = (startHour, endMer) => {
 
 const normalizeHorario = (raw) => {
   if (!raw) return "N/A";
-
   const afterSlash = raw.includes("/") ? raw.split("/").pop().trim() : raw.trim();
-
+  
   const m = afterSlash.match(
     /(\d{1,2}):(\d{2})\s*(AM|PM)?\s*(?:A|TO|-)\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i
   );
@@ -71,14 +49,11 @@ const normalizeHorario = (raw) => {
   const sh = parseInt(m[1], 10);
   const sm = m[2];
   let startMer = (m[3] || "").toUpperCase();
-
   const eh = parseInt(m[4], 10);
   const em = m[5];
   const endMer = m[6].toUpperCase();
 
-  if (!startMer) {
-    startMer = inferStartMeridiem(sh, endMer);
-  }
+  if (!startMer) startMer = inferStartMeridiem(sh, endMer);
 
   const candidate = `${sh}:${sm} ${startMer} - ${eh}:${em} ${endMer}`;
   const cKey = normKey(candidate);
@@ -87,31 +62,46 @@ const normalizeHorario = (raw) => {
   return mapped || candidate;
 };
 
-const extractMetaFromLine = (line, meta, fileName) => {
-  if (line.startsWith("Categoría:") || line.startsWith("Categoria:")) {
-    const raw = line.split(":").slice(1).join(":").trim();
+// 1. NUEVA FUNCIÓN EXTRACTORA INDESTRUCTIBLE
+const extractMetaFromLine = (line, meta) => {
+  const up = line.toUpperCase();
+
+  // Categoría: Busca en cualquier parte de la línea, no solo al inicio
+  if (up.includes("CATEGORÍA:") || up.includes("CATEGORIA:")) {
+    const parts = up.split(/CATEGOR[IÍ]A:/);
+    const raw = parts[1].trim(); 
     meta.categoryRaw = raw;
-    meta.category = normalizeCategory(raw, fileName);
-    return;
+    
+    // Filtro estricto sobre el valor real de la celda
+    if (raw.includes("ADULT")) {
+      meta.category = "Adultos";
+    } else if (raw.includes("JOVEN") || raw.includes("JÓVEN")) {
+      meta.category = "Jóvenes";
+    } else if (raw.includes("NIÑ") || raw.includes("NINOS")) {
+      meta.category = "Niños";
+    } else {
+      meta.category = "Otra";
+    }
   }
 
-  if (line.startsWith("Nivel:")) {
-    const raw = line.split(":").slice(1).join(":").trim();
-    meta.levelRaw = raw;
-    meta.levelNorm = normalizeLevel(raw);
-    return;
+  // Nivel
+  if (up.includes("NIVEL:")) {
+    const parts = up.split("NIVEL:");
+    meta.levelRaw = parts[1].trim();
+    meta.levelNorm = normalizeLevel(meta.levelRaw);
   }
 
-  if (line.startsWith("Horario:")) {
-    const raw = line.split(":").slice(1).join(":").trim();
-    meta.scheduleRaw = raw;
-    meta.scheduleBlock = normalizeHorario(raw);
-    return;
+  // Horario
+  if (up.includes("HORARIO:")) {
+    const parts = up.split("HORARIO:");
+    meta.scheduleRaw = parts[1].trim();
+    meta.scheduleBlock = normalizeHorario(meta.scheduleRaw);
   }
 
-  if (/^SAL[ÓO]N:/i.test(line)) {
-    meta.salonRaw = line;
-    const m = line.match(/SAL[ÓO]N:\s*([A-Z0-9]+).*CURSO\s*ID:\s*(\d+)/i);
+  // Salón
+  if (up.includes("SALÓN:") || up.includes("SALON:")) {
+    meta.salonRaw = up;
+    const m = up.match(/SAL[ÓO]N:\s*([A-Z0-9]+).*CURSO\s*ID:\s*(\d+)/i);
     if (m) {
       meta.salon = m[1];
       meta.courseId = m[2];
@@ -121,17 +111,13 @@ const extractMetaFromLine = (line, meta, fileName) => {
 
 const shouldSkipLine = (line) => {
   const up = line.toUpperCase();
-
   if (up.includes("CENTRO VENEZOLANO")) return true;
   if (up.includes("LISTA DE ALUMNOS")) return true;
   if (up.startsWith("R.I.F")) return true;
   if (up.startsWith("SEDE:")) return true;
   if (up.startsWith("FECHA:")) return true;
   if (up.startsWith("PERIODO:")) return true;
-  if (up.startsWith("SALÓN:") || up.startsWith("SALON:")) return true;
-
   if (up.includes("APELLIDOS") && up.includes("EMAIL")) return true;
-
   return false;
 };
 
@@ -141,7 +127,6 @@ const parseStudentLine = (line, meta) => {
 
   const id = m[2];
   const rest = m[3].trim();
-
   const tokens = rest.split(/\s+/);
 
   let email = "";
@@ -156,7 +141,6 @@ const parseStudentLine = (line, meta) => {
 
   let nameTokens = tokens;
   let afterTokens = [];
-
   if (emailIdx >= 0) {
     nameTokens = tokens.slice(0, emailIdx);
     afterTokens = tokens.slice(emailIdx + 1);
@@ -192,15 +176,11 @@ const parseStudentLine = (line, meta) => {
 
 export async function parseCevazPdf(file) {
   const text = await extractTextFromPdf(file);
-
-  const lines = (text || "")
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
+  const lines = (text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
   const meta = {
     categoryRaw: "",
-    category: normalizeCategory("", file?.name),
+    category: "", 
     levelRaw: "",
     levelNorm: "",
     scheduleRaw: "",
@@ -210,13 +190,23 @@ export async function parseCevazPdf(file) {
     courseId: "",
   };
 
+  // 2. FILTRO GLOBAL DE SEGURIDAD (Si falla la línea, lee el texto completo)
+  const fullTextUp = (text || "").toUpperCase();
+  if (fullTextUp.includes("CATEGORÍA: CEVAZ PRESENCIAL JOVENES") || fullTextUp.includes("CATEGORIA: CEVAZ PRESENCIAL JOVENES")) {
+     meta.category = "Jóvenes";
+  } else if (fullTextUp.includes("PRESENCIAL ADULTOS")) {
+     meta.category = "Adultos";
+  } else if (fullTextUp.includes("PRESENCIAL NIÑOS") || fullTextUp.includes("PRESENCIAL NINOS")) {
+     meta.category = "Niños";
+  } else {
+     meta.category = "Otra";
+  }
+
   const students = [];
 
   for (const line of lines) {
     if (shouldSkipLine(line)) continue;
-
-    extractMetaFromLine(line, meta, file?.name);
-
+    extractMetaFromLine(line, meta);
     const s = parseStudentLine(line, meta);
     if (s && s.id) students.push(s);
   }
