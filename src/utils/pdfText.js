@@ -4,9 +4,6 @@ import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
-/**
- * Extrae texto del PDF reconstruyendo líneas (crítico para que el parser funcione bien).
- */
 export async function extractTextFromPdf(file) {
   if (!file) return "";
 
@@ -19,7 +16,6 @@ export async function extractTextFromPdf(file) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
 
-    // Items: { str, transform, width, ... }
     const items = (content.items || [])
       .map((it) => {
         const str = (it.str || "").trimEnd();
@@ -30,15 +26,13 @@ export async function extractTextFromPdf(file) {
       })
       .filter((it) => it.str && it.str.trim().length > 0);
 
-    // Agrupar por "línea" usando Y (redondeado)
     const byY = new Map();
     for (const it of items) {
-      const yKey = Math.round(it.y); // suficiente para PDFs como los tuyos
+      const yKey = Math.round(it.y); 
       if (!byY.has(yKey)) byY.set(yKey, []);
       byY.get(yKey).push(it);
     }
 
-    // Orden: de arriba hacia abajo
     const yKeys = Array.from(byY.keys()).sort((a, b) => b - a);
 
     for (const yKey of yKeys) {
@@ -49,14 +43,9 @@ export async function extractTextFromPdf(file) {
       let prevW = 0;
 
       for (const it of lineItems) {
-        const gap =
-          prevX === null ? 999 : it.x - (prevX + (prevW || 0));
-
-        // Si hay espacio visual, metemos un espacio; si no, pegamos (emails/números)
+        const gap = prevX === null ? 999 : it.x - (prevX + (prevW || 0));
         if (line && gap > 2) line += " ";
-
         line += it.str;
-
         prevX = it.x;
         prevW = it.w;
       }
@@ -65,10 +54,8 @@ export async function extractTextFromPdf(file) {
       if (line) allLines.push(line);
     }
 
-    allLines.push(""); // separador entre páginas
+    allLines.push("");
   }
 
   return allLines.join("\n");
 }
-
-export default extractTextFromPdf;
