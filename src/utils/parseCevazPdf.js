@@ -65,22 +65,6 @@ const normalizeHorario = (raw) => {
 const extractMetaFromLine = (line, meta) => {
   const up = line.toUpperCase();
 
-  if (up.includes("CATEGORÍA:") || up.includes("CATEGORIA:")) {
-    const parts = up.split(/CATEGOR[IÍ]A:/);
-    const raw = parts[1].trim(); 
-    meta.categoryRaw = raw;
-    
-    if (raw.includes("ADULT")) {
-      meta.category = "Adultos";
-    } else if (raw.includes("JOVEN") || raw.includes("JÓVEN")) {
-      meta.category = "Jóvenes";
-    } else if (raw.includes("NIÑ") || raw.includes("NINOS")) {
-      meta.category = "Niños";
-    } else {
-      meta.category = "Otra";
-    }
-  }
-
   if (up.includes("NIVEL:")) {
     const parts = up.split("NIVEL:");
     meta.levelRaw = parts[1].trim();
@@ -186,12 +170,12 @@ export async function parseCevazPdf(file) {
 
   const fullTextUp = (text || "").toUpperCase();
   
-  // FILTRO ESTRICTO: Lee el cuerpo completo del documento para determinar la categoría
-  if (fullTextUp.includes("PRESENCIAL JOVENES") || fullTextUp.includes("PRESENCIAL JÓVENES")) {
-     meta.category = "Jóvenes";
-  } else if (fullTextUp.includes("PRESENCIAL ADULTOS")) {
+  // FILTRO ESTRICTO: Absorbe el error de lectura del caracter "Ñ"
+  if (fullTextUp.includes("PRESENCIAL ADULTOS")) {
      meta.category = "Adultos";
-  } else if (fullTextUp.includes("PRESENCIAL NIÑOS") || fullTextUp.includes("PRESENCIAL NINOS")) {
+  } else if (fullTextUp.includes("PRESENCIAL JOVENES") || fullTextUp.includes("PRESENCIAL JÓVENES")) {
+     meta.category = "Jóvenes";
+  } else if (fullTextUp.includes("PRESENCIAL NIÑOS") || fullTextUp.includes("PRESENCIAL NINOS") || fullTextUp.includes("PRESENCIAL NI?OS")) {
      meta.category = "Niños";
   } else {
      meta.category = "Otra";
