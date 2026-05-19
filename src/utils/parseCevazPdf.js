@@ -27,19 +27,27 @@ const normalizeLevel = (raw) => {
 };
 
 const normalizeCategory = (raw, fileName = "") => {
-  const src = `${raw || ""} ${fileName || ""}`.toUpperCase();
-  if (src.includes("ADULT")) return "Adultos";
-  if (src.includes("KIDS") || src.includes("NIÑ") || src.includes("NIN")) return "Niños";
-  if (src.includes("YOUNG") || src.includes("JOV") || src.includes("TEEN")) return "Jóvenes";
+  const rawUp = (raw || "").toUpperCase();
+
+  // 1. Fuente de verdad principal: lo que dice exactamente la celda "Categoría" en el PDF
+  if (rawUp.includes("ADULT")) return "Adultos";
+  if (rawUp.includes("JOV") || rawUp.includes("YOUNG") || rawUp.includes("TEEN")) return "Jóvenes";
+  if (rawUp.includes("KIDS") || rawUp.includes("NIÑ") || rawUp.includes("NIN")) return "Niños";
+
+  // 2. Plan de respaldo: si la celda vino vacía, buscamos en el nombre del archivo, 
+  // pero con mayor precisión para no confundir "NIN_JOV"
+  const fileUp = (fileName || "").toUpperCase();
+  if (fileUp.includes("PRESENCIAL JOVENES")) return "Jóvenes";
+  if (fileUp.includes("PRESENCIAL NIÑOS") || fileUp.includes("PRESENCIAL NINOS")) return "Niños";
+  
+  if (fileUp.includes("ADULT")) return "Adultos";
+  if (fileUp.includes("JOV") || fileUp.includes("YOUNG") || fileUp.includes("TEEN")) return "Jóvenes";
+  if (fileUp.includes("KIDS") || fileUp.includes("NIÑ") || fileUp.includes("NIN")) return "Niños";
+
   return raw ? raw.trim() : "Otra";
 };
 
 const inferStartMeridiem = (startHour, endMer) => {
-  // Reglas basadas en tus bloques reales:
-  // - Si termina AM => empieza AM
-  // - Si termina PM:
-  //    - 8,9,10,11 => empieza AM (caso 10:30 A 12:00 PM)
-  //    - 1..7 => empieza PM
   if (endMer === "AM") return "AM";
   if (startHour >= 8 && startHour <= 11) return "AM";
   return "PM";
@@ -50,10 +58,6 @@ const normalizeHorario = (raw) => {
 
   const afterSlash = raw.includes("/") ? raw.split("/").pop().trim() : raw.trim();
 
-  // Captura:
-  // 8:30 A 10:00 AM
-  // 10:30 A 12:00 PM
-  // 8:00 AM - 10:40 AM
   const m = afterSlash.match(
     /(\d{1,2}):(\d{2})\s*(AM|PM)?\s*(?:A|TO|-)\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i
   );
@@ -105,7 +109,6 @@ const extractMetaFromLine = (line, meta, fileName) => {
     return;
   }
 
-  // Extra: útil para el futuro (cursos/alertas por curso), no afecta tu UI actual
   if (/^SAL[ÓO]N:/i.test(line)) {
     meta.salonRaw = line;
     const m = line.match(/SAL[ÓO]N:\s*([A-Z0-9]+).*CURSO\s*ID:\s*(\d+)/i);
@@ -127,16 +130,12 @@ const shouldSkipLine = (line) => {
   if (up.startsWith("PERIODO:")) return true;
   if (up.startsWith("SALÓN:") || up.startsWith("SALON:")) return true;
 
-  // Cabecera de columnas
   if (up.includes("APELLIDOS") && up.includes("EMAIL")) return true;
 
   return false;
 };
 
 const parseStudentLine = (line, meta) => {
-  // ✅ REGLA CLAVE: una fila real de alumno empieza con:
-  // [#] [CEDULA] [NOMBRES...]
-  // Esto mata los “fantasmas” tipo "Salón: C5 Curso ID: 64161"
   const m = line.match(/^(\d+)\s+(\d{6,12})\s+(.+)$/);
   if (!m) return null;
 
@@ -145,7 +144,6 @@ const parseStudentLine = (line, meta) => {
 
   const tokens = rest.split(/\s+/);
 
-  // Email: si existe, es el primer token con "@". No lo validamos estricto (a ti no te importa perfecto).
   let email = "";
   let emailIdx = -1;
   for (let i = 0; i < tokens.length; i++) {
@@ -163,14 +161,12 @@ const parseStudentLine = (line, meta) => {
     nameTokens = tokens.slice(0, emailIdx);
     afterTokens = tokens.slice(emailIdx + 1);
   } else {
-    // Si no hay email, intentamos encontrar teléfono al final
     afterTokens = [];
   }
 
   const name = nameTokens.join(" ").replace(/\s{2,}/g, " ").trim();
   if (!name) return null;
 
-  // Teléfono: cualquier cadena larga numérica (con + opcional) después del email
   let phone = "";
   const afterStr = afterTokens.join(" ");
   const phoneMatch = afterStr.match(/(\+?\d[\d\s-]{6,}\d)/);
@@ -189,8 +185,6 @@ const parseStudentLine = (line, meta) => {
     levelNorm: meta.levelNorm || "N/A",
     schedule: meta.scheduleRaw || "N/A",
     scheduleBlock: meta.scheduleBlock || "N/A",
-
-    // extra (no rompe nada)
     salon: meta.salon || "",
     courseId: meta.courseId || "",
   };
