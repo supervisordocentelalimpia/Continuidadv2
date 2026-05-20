@@ -6,12 +6,12 @@ import pdfFonts from "pdfmake/build/vfs_fonts";
 import * as Docx from "docx";
 import { saveAs } from "file-saver";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import {
   Search, Users, Clock, AlertTriangle, Download, CheckCircle, XCircle, Filter, 
   Phone, Upload, RefreshCw, Trash2, MessageCircle, 
-  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File
+  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap
 } from "lucide-react";
 
 import { parseCevazPdf, __HORARIO_BLOQUES__ } from "./utils/parseCevazPdf";
@@ -20,9 +20,6 @@ if (pdfFonts && pdfFonts.pdfMake) {
   pdfMake.vfs = pdfFonts.pdfMake.vfs;
 }
 
-/* =========================
-   COLORES Y CONSTANTES
-   ========================= */
 const FRECUENCIA_COLORS = {
   "MARTES Y JUEVES": "#7c3aed",
   "MIERCOLES Y VIERNES": "#f97316",
@@ -38,11 +35,17 @@ const HORARIO_COLORS = [
   "#2563eb", "#16a34a", "#f97316", "#7c3aed", "#0ea5e9", "#f43f5e", "#22c55e", "#eab308", "#a855f7", "#64748b",
 ];
 
-const isGraduated = (student) => (student?.levelNorm || "").toUpperCase() === "L19";
+// Lógica inteligente para detectar graduados
+const isGraduated = (student) => {
+  if (!student || !student.levelNorm) return false;
+  const lvl = parseInt(student.levelNorm.replace(/\D/g, "")) || 0;
+  const cat = student.category || "";
+  if (cat === "Adultos" && lvl >= 20) return true;
+  if ((cat === "Niños" || cat === "Jóvenes") && lvl >= 18) return true;
+  if (student.levelNorm.toUpperCase() === "L19" || student.levelNorm.toUpperCase() === "L20") return true; // Fallback
+  return false;
+};
 
-/* =========================
-   UTILIDADES DE ARCHIVOS
-   ========================= */
 const FRECUENCIA_ORDER = [
   "MARTES Y JUEVES", "MIERCOLES Y VIERNES", "LUNES", "SABATINO", "INTENSIVO A", "INTENSIVO B", "INTENSIVO", "N/A",
 ];
@@ -152,9 +155,6 @@ const uniqByIdPreferLatest = (arr) => {
   return Array.from(map.values());
 };
 
-/* =========================
-   COMPONENTE PRINCIPAL
-   ========================= */
 const DashboardContinuidad = () => {
   const [activeTab, setActiveTab] = useState("upload");
   const fileInputRef = useRef(null);
@@ -169,13 +169,19 @@ const DashboardContinuidad = () => {
   const [oldStudents, setOldStudents] = useState([]);
   const [newStudents, setNewStudents] = useState([]);
   const [dropouts, setDropouts] = useState([]);
+  const [newStudentsList, setNewStudentsList] = useState([]);
+  const [freqChangersList, setFreqChangersList] = useState([]);
 
   const [crmData, setCrmData] = useState({});
   const [crmModal, setCrmModal] = useState({ isOpen: false, student: null });
 
+  const [tableView, setTableView] = useState("desercion"); // desercion | nuevos | cambios
+  const [filterFugaType, setFilterFugaType] = useState("All"); // All | Nuevos | Regulares
+
   const [stats, setStats] = useState({
     eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0,
-    nuevosLost: 0, regularesLost: 0, transiciones: 0, avgDensity: 0, topHorarioFugas: "N/A"
+    nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, 
+    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0
   });
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -198,20 +204,22 @@ const DashboardContinuidad = () => {
 
   const resetAll = () => {
     setPdfOldFiles([]); setPdfNewFiles([]); setOldStudents([]); setNewStudents([]); setDropouts([]);
-    setCrmData({}); setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All");
+    setNewStudentsList([]); setFreqChangersList([]); setCrmData({}); 
+    setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All");
     setSelectedLevel("All"); setSelectedHorario("All"); setLevelChartCategory("All"); setPieMode("horario");
-    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transiciones: 0, avgDensity: 0, topHorarioFugas: "N/A" });
+    setTableView("desercion"); setFilterFugaType("All");
+    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0 });
     setErrorMsg(""); setWarnMsg(""); setActiveTab("upload");
   };
 
   const resetFilters = () => {
-    setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All"); setSelectedLevel("All"); setSelectedHorario("All"); setLevelChartCategory("All");
+    setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All"); setSelectedLevel("All"); setSelectedHorario("All"); setLevelChartCategory("All"); setFilterFugaType("All");
   };
 
   const processPdfs = async () => {
     setErrorMsg(""); setWarnMsg("");
     if (!pdfOldFiles.length || !pdfNewFiles.length) {
-      setErrorMsg("Debes seleccionar al menos 1 PDF ANTERIOR y 1 PDF ACTUAL."); return;
+      setErrorMsg("Selecciona al menos 1 PDF ANTERIOR y 1 PDF ACTUAL."); return;
     }
 
     try {
@@ -222,8 +230,12 @@ const DashboardContinuidad = () => {
       const oldU = uniqByIdPreferLatest(oldAll);
       const newU = uniqByIdPreferLatest(newAll);
 
+      const oldIds = new Set(oldU.map((s) => s.id));
       const newIds = new Set(newU.map((s) => s.id));
+
+      const grads = oldU.filter(isGraduated);
       const eligibleOld = oldU.filter((s) => !isGraduated(s));
+
       const reenrolled = eligibleOld.filter((s) => newIds.has(s.id));
       const lost = eligibleOld.filter((s) => !newIds.has(s.id));
 
@@ -233,13 +245,22 @@ const DashboardContinuidad = () => {
       const nuevosLost = lost.filter(s => s.levelNorm === "L01").length;
       const regularesLost = lost.length - nuevosLost;
 
-      let transiciones = 0;
+      let transNinosJovenes = 0;
+      let transJovenesAdultos = 0;
+      const freqChangersArr = [];
+
       reenrolled.forEach(newS => {
         const oldS = oldU.find(o => o.id === newS.id);
-        if (oldS && oldS.category !== newS.category && oldS.category !== "Otra" && newS.category !== "Otra") {
-          transiciones++;
+        if (oldS) {
+          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNinosJovenes++;
+          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJovenesAdultos++;
+          if (oldS.frequencyNorm !== newS.frequencyNorm && oldS.frequencyNorm !== "N/A" && newS.frequencyNorm !== "N/A") {
+            freqChangersArr.push({...newS, oldFrequency: oldS.frequencyNorm});
+          }
         }
       });
+
+      const newStudentsArr = newU.filter(s => !oldIds.has(s.id));
 
       const activeCourses = new Set(newU.filter(s => s.courseId).map(s => s.courseId));
       const avgDensity = activeCourses.size > 0 ? (newU.length / activeCourses.size).toFixed(1) : 0;
@@ -251,11 +272,19 @@ const DashboardContinuidad = () => {
       const topHorarioFugas = Object.entries(byHorario).sort((a,b) => b[1]-a[1])[0]?.[0] || "N/A";
 
       setOldStudents(oldU); setNewStudents(newU); setDropouts(lost); setCrmData({});
-      setStats({ eligibleOld: eligibleOld.length, reenrolled: reenrolled.length, reenrolledPct, lost: lost.length, lostPct, nuevosLost, regularesLost, transiciones, avgDensity, topHorarioFugas });
-      resetFilters();
+      setNewStudentsList(newStudentsArr); setFreqChangersList(freqChangersArr);
+      
+      setStats({ 
+        eligibleOld: eligibleOld.length, reenrolled: reenrolled.length, reenrolledPct, lost: lost.length, lostPct, 
+        nuevosLost, regularesLost, transNinosJovenes, transJovenesAdultos, avgDensity, topHorarioFugas,
+        graduados: grads.length, nuevosIngresos: newStudentsArr.length, cambiosFreq: freqChangersArr.length
+      });
 
+      resetFilters();
+      setTableView("desercion");
+      
       const allFailed = [...(failedOld || []), ...(failedNew || [])];
-      if (allFailed.length) setWarnMsg(`Ojo: no pude leer ${allFailed.length} PDF(s): ${allFailed.join(", ")}`);
+      if (allFailed.length) setWarnMsg(`Archivos no procesados (posibles escaneos): ${allFailed.join(", ")}`);
       setActiveTab("dashboard");
     } catch (e) {
       setErrorMsg(e?.message || "Error procesando PDFs.");
@@ -291,30 +320,43 @@ const DashboardContinuidad = () => {
     }
   };
 
+  const onClickPie = (data) => {
+    const name = data?.name || data?.payload?.name;
+    if (!name) return;
+    setTableView("desercion");
+    if (pieMode === "horario") setSelectedHorario(name);
+    else setSelectedFrecuencia(name);
+  };
+
   /* =========================
      IMPORTAR / EXPORTAR DATOS
      ========================= */
   const exportExcel = () => {
-    if (!dropouts.length) return;
-    const rows = dropouts.map((s) => {
+    if (!filteredData.length) return;
+    const rows = filteredData.map((s) => {
       const crm = crmData[s.id] || {};
-      return {
+      const baseRow = {
         Cedula: s.id,
         Estudiante: s.name,
-        "Estatus CRM": crm.status || "Pendiente",
-        Motivo: crm.motive || "",
-        Notas: crm.notes || "",
         Categoria: s.category,
         Nivel: s.levelNorm,
         Frecuencia: s.frequencyNorm || "N/A",
         Horario: s.scheduleBlock,
         Email: s.email || "",
         Telefono: s.phone || "",
+      };
+
+      if (tableView === "desercion") {
+        return { ...baseRow, "Estatus CRM": crm.status || "Pendiente", Motivo: crm.motive || "", Notas: crm.notes || "" };
+      } else if (tableView === "cambios") {
+        return { ...baseRow, "Frecuencia Anterior": s.oldFrequency || "N/A" };
+      } else {
+        return baseRow;
       }
     });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Base Continuidad");
+    XLSX.utils.book_append_sheet(wb, ws, "Datos Continuidad");
     XLSX.writeFile(wb, `BD_Continuidad_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
@@ -331,7 +373,7 @@ const DashboardContinuidad = () => {
       
       const newCrmData = { ...crmData };
       data.forEach(row => {
-        if(row.Cedula) {
+        if(row.Cedula && row["Estatus CRM"]) {
           newCrmData[String(row.Cedula)] = {
             status: row["Estatus CRM"] || "Pendiente",
             motive: row.Motivo || "",
@@ -373,7 +415,7 @@ const DashboardContinuidad = () => {
               ],
               [
                 { text: `${stats.avgDensity} / Salón`, style: 'kpiValue' },
-                { text: `${stats.transiciones} Promovidos`, style: 'kpiValue' },
+                { text: `${stats.transNinosJovenes + stats.transJovenesAdultos} Promovidos`, style: 'kpiValue' },
                 { text: `${winBackRate}%`, style: 'kpiValue' }
               ]
             ]
@@ -385,6 +427,7 @@ const DashboardContinuidad = () => {
           ul: [
             { text: `Fuga Estructural: Se registra una pérdida de ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.`, margin: [0, 0, 0, 5] },
             { text: `Horario Crítico: El bloque horario con mayor índice de fuga reportado es "${stats.topHorarioFugas}".`, margin: [0, 0, 0, 5] },
+            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Ingresos por Nivelación y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
             { text: `Gestión de CRM: De ${stats.lost} estudiantes perdidos, se han contactado ${contactedCount} y se han logrado rescatar exitosamente a ${rescuedCount}.` }
           ],
           margin: [0, 0, 0, 20]
@@ -451,7 +494,8 @@ const DashboardContinuidad = () => {
           new Docx.Paragraph({ text: `En el presente análisis de continuidad, partiendo de una base de ${stats.eligibleOld} estudiantes regulares, se logró la reinscripción de ${stats.reenrolled} alumnos. Esto representa una Tasa de Retención Institucional del ${stats.reenrolledPct}%. Por otro lado, la tasa de deserción se ubica en el ${stats.lostPct}%, con un total de ${stats.lost} estudiantes perdidos.` }),
           new Docx.Paragraph({ text: " " }),
           new Docx.Paragraph({ text: "2. Indicadores Clave de Rendimiento (KPIs)", heading: Docx.HeadingLevel.HEADING_3 }),
-          new Docx.Paragraph({ text: `• Transición Generacional: ${stats.transiciones} alumnos promovidos exitosamente entre categorías.` }),
+          new Docx.Paragraph({ text: `• Transición Generacional: ${stats.transNinosJovenes + stats.transJovenesAdultos} alumnos promovidos exitosamente entre categorías.` }),
+          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Nivelaciones/Nuevos.` }),
           new Docx.Paragraph({ text: `• Densidad Promedio: ${stats.avgDensity} alumnos por salón activo en el periodo actual.` }),
           new Docx.Paragraph({ text: `• Comportamiento de Fuga: Se perdieron ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.` }),
           new Docx.Paragraph({ text: `• Horario Crítico: El bloque con mayor índice de fuga registrado fue "${stats.topHorarioFugas}".` }),
@@ -473,10 +517,11 @@ const DashboardContinuidad = () => {
      FILTROS Y DATOS DE TABLA
      ========================= */
   const filterOptions = useMemo(() => {
-    const cats = Array.from(new Set(dropouts.map((s) => s.category).filter(Boolean))).sort();
-    const lvls = Array.from(new Set(dropouts.map((s) => s.levelNorm).filter(Boolean))).sort();
-    const hrs = Array.from(new Set(dropouts.map((s) => s.scheduleBlock).filter(Boolean)));
-    const freqs = Array.from(new Set(dropouts.map((s) => s.frequencyNorm).filter(Boolean)));
+    const activeArr = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
+    const cats = Array.from(new Set(activeArr.map((s) => s.category).filter(Boolean))).sort();
+    const lvls = Array.from(new Set(activeArr.map((s) => s.levelNorm).filter(Boolean))).sort();
+    const hrs = Array.from(new Set(activeArr.map((s) => s.scheduleBlock).filter(Boolean)));
+    const freqs = Array.from(new Set(activeArr.map((s) => s.frequencyNorm).filter(Boolean)));
     const known = __HORARIO_BLOQUES__ || [];
     const knownSet = new Set(known);
     return {
@@ -485,19 +530,28 @@ const DashboardContinuidad = () => {
       horarios: ["All", ...known.filter(h => hrs.includes(h)), ...hrs.filter(h => !knownSet.has(h)).sort()],
       frecuencias: ["All", ...FRECUENCIA_ORDER.filter(f => freqs.includes(f)), ...freqs.filter(f => !FRECUENCIA_ORDER.includes(f)).sort()],
     };
-  }, [dropouts]);
+  }, [dropouts, newStudentsList, freqChangersList, tableView]);
 
   const filteredData = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    return dropouts.filter((s) => {
+    const sourceData = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
+
+    return sourceData.filter((s) => {
       const matchesSearch = !q || (s.name || "").toLowerCase().includes(q) || (s.id || "").includes(q) || (s.email || "").toLowerCase().includes(q) || (s.phone || "").includes(q);
       const matchesCategory = selectedCategory === "All" || s.category === selectedCategory;
       const matchesFrecuencia = selectedFrecuencia === "All" || s.frequencyNorm === selectedFrecuencia;
       const matchesLevel = selectedLevel === "All" || s.levelNorm === selectedLevel;
       const matchesHorario = selectedHorario === "All" || s.scheduleBlock === selectedHorario;
-      return matchesSearch && matchesCategory && matchesFrecuencia && matchesLevel && matchesHorario;
+      
+      let matchesFugaType = true;
+      if (tableView === "desercion") {
+          if (filterFugaType === "Nuevos" && s.levelNorm !== "L01") matchesFugaType = false;
+          if (filterFugaType === "Regulares" && s.levelNorm === "L01") matchesFugaType = false;
+      }
+
+      return matchesSearch && matchesCategory && matchesFrecuencia && matchesLevel && matchesHorario && matchesFugaType;
     });
-  }, [dropouts, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario]);
+  }, [dropouts, newStudentsList, freqChangersList, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
 
   const barSource = useMemo(() => levelChartCategory === "All" ? dropouts : dropouts.filter((s) => s.category === levelChartCategory), [dropouts, levelChartCategory]);
 
@@ -514,9 +568,7 @@ const DashboardContinuidad = () => {
     return Object.keys(byKey).map((k) => ({ name: k, value: byKey[k] })).sort((a, b) => b.value - a.value);
   }, [dropouts, pieMode]);
 
-  /* =========================
-     RENDER: UPLOAD VIEW
-     ========================= */
+
   if (activeTab === "upload") {
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
@@ -524,7 +576,7 @@ const DashboardContinuidad = () => {
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Upload className="h-6 w-6 text-blue-600" /> Dashboard de Continuidad - Carga de Datos
           </h1>
-          <p className="text-slate-500 text-sm mt-1">Sube las listas del periodo anterior y actual. Puedes seleccionar varios archivos a la vez.</p>
+          <p className="text-slate-500 text-sm mt-1">Sube las listas del periodo anterior y actual.</p>
         </header>
 
         {errorMsg && <div className="mb-4 p-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">{errorMsg}</div>}
@@ -543,13 +595,12 @@ const DashboardContinuidad = () => {
                 e.target.value = "";
               }} className="block w-full text-sm" />
             <div className="text-xs text-slate-500 mt-2">{pdfOldFiles.length ? `Seleccionados: ${pdfOldFiles.length}` : "No hay PDFs seleccionados."}</div>
-            
             {pdfOldFiles.length > 0 && (
               <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
                 {pdfOldFiles.map((f, idx) => (
                   <li key={fileKey(f)} className="flex items-center justify-between gap-3 text-xs bg-slate-50 p-2 rounded">
                     <span className="text-slate-700 truncate">{f.name}</span>
-                    <button type="button" onClick={() => removeOldAt(idx)} className="text-slate-500 hover:text-red-600 inline-flex items-center" title="Quitar">
+                    <button type="button" onClick={() => removeOldAt(idx)} className="text-slate-500 hover:text-red-600 inline-flex items-center">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </li>
@@ -571,13 +622,12 @@ const DashboardContinuidad = () => {
                 e.target.value = "";
               }} className="block w-full text-sm" />
             <div className="text-xs text-slate-500 mt-2">{pdfNewFiles.length ? `Seleccionados: ${pdfNewFiles.length}` : "No hay PDFs seleccionados."}</div>
-            
             {pdfNewFiles.length > 0 && (
               <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
                 {pdfNewFiles.map((f, idx) => (
                   <li key={fileKey(f)} className="flex items-center justify-between gap-3 text-xs bg-slate-50 p-2 rounded">
                     <span className="text-slate-700 truncate">{f.name}</span>
-                    <button type="button" onClick={() => removeNewAt(idx)} className="text-slate-500 hover:text-red-600 inline-flex items-center" title="Quitar">
+                    <button type="button" onClick={() => removeNewAt(idx)} className="text-slate-500 hover:text-red-600 inline-flex items-center">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </li>
@@ -597,11 +647,8 @@ const DashboardContinuidad = () => {
     );
   }
 
-  /* =========================
-     RENDER: DASHBOARD
-     ========================= */
   return (
-    <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800 relative print:bg-white print:p-0">
+    <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800 relative print:bg-white print:p-0" id="dashboard-content">
       
       <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
         <div>
@@ -634,7 +681,7 @@ const DashboardContinuidad = () => {
         </div>
       </header>
 
-      {/* DASHBOARD FLASHCARDS (METRICS) */}
+      {/* DASHBOARD INDICATORS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         
         <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500 flex flex-col justify-between print:border print:shadow-none">
@@ -642,10 +689,11 @@ const DashboardContinuidad = () => {
             <p className="text-sm font-semibold text-slate-500">Total Reinscritos</p>
             <CheckCircle className="h-5 w-5 text-emerald-500 print:hidden" />
           </div>
-          <div className="mt-2">
-            <h3 className="text-3xl font-black text-slate-800">{stats.reenrolled}</h3>
-            <p className="text-xs text-slate-400 font-medium">{stats.reenrolledPct}% de {stats.eligibleOld} regulares</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <h3 className="text-4xl font-black text-emerald-600">{stats.reenrolledPct}%</h3>
+            <p className="text-lg font-bold text-slate-700">({stats.reenrolled})</p>
           </div>
+          <p className="text-xs text-slate-400 font-medium">De {stats.eligibleOld} regulares</p>
         </div>
 
         <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500 flex flex-col justify-between print:border print:shadow-none">
@@ -653,9 +701,46 @@ const DashboardContinuidad = () => {
             <p className="text-sm font-semibold text-slate-500">Total Pérdida</p>
             <XCircle className="h-5 w-5 text-rose-500 print:hidden" />
           </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <h3 className="text-4xl font-black text-rose-600">{stats.lostPct}%</h3>
+            <p className="text-lg font-bold text-slate-700">({stats.lost})</p>
+          </div>
+          <p className="text-xs text-slate-400 font-medium">De {stats.eligibleOld} regulares</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Fuga: Nuevos vs Regulares</p>
+            <AlertTriangle className="h-5 w-5 text-amber-400 print:hidden" />
+          </div>
+          <div className="mt-2 flex items-end gap-4">
+            <div 
+              className={`cursor-pointer px-2 py-1 rounded transition-colors ${filterFugaType === 'Nuevos' ? 'bg-rose-100 ring-2 ring-rose-400' : 'hover:bg-slate-100'}`} 
+              onClick={() => { setTableView("desercion"); setFilterFugaType(prev => prev === 'Nuevos' ? 'All' : 'Nuevos'); }}
+            >
+              <span className="text-2xl font-black text-rose-600">{stats.nuevosLost}</span>
+              <span className="text-xs font-bold text-slate-500 ml-1">L01</span>
+            </div>
+            <div className="text-slate-300 pb-2">|</div>
+            <div 
+              className={`cursor-pointer px-2 py-1 rounded transition-colors ${filterFugaType === 'Regulares' ? 'bg-slate-200 ring-2 ring-slate-400' : 'hover:bg-slate-100'}`} 
+              onClick={() => { setTableView("desercion"); setFilterFugaType(prev => prev === 'Regulares' ? 'All' : 'Regulares'); }}
+            >
+              <span className="text-2xl font-black text-slate-700">{stats.regularesLost}</span>
+              <span className="text-xs font-bold text-slate-500 ml-1">Regulares</span>
+            </div>
+          </div>
+          {filterFugaType !== "All" && <p className="text-xs text-blue-500 font-semibold mt-1">Filtro activo. Clic para quitar.</p>}
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-b-4 border-b-blue-500 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Tasa Éxito Rescate</p>
+            <Phone className="h-5 w-5 text-blue-500 print:hidden" />
+          </div>
           <div className="mt-2">
-            <h3 className="text-3xl font-black text-slate-800">{stats.lost}</h3>
-            <p className="text-xs text-slate-400 font-medium">{stats.lostPct}% de {stats.eligibleOld} regulares</p>
+            <h3 className="text-3xl font-black text-blue-600">{winBackRate}%</h3>
+            <p className="text-xs text-slate-400 font-medium">{rescuedCount} de {contactedCount} contactados</p>
           </div>
         </div>
 
@@ -667,17 +752,6 @@ const DashboardContinuidad = () => {
           <div className="mt-2">
             <h3 className="text-lg font-black text-slate-800 truncate" title={stats.topHorarioFugas}>{stats.topHorarioFugas}</h3>
             <p className="text-xs text-slate-400 font-medium">Bloque con mayor deserción</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Tasa Éxito Rescate</p>
-            <Phone className="h-5 w-5 text-blue-500 print:hidden" />
-          </div>
-          <div className="mt-2">
-            <h3 className="text-3xl font-black text-blue-600">{winBackRate}%</h3>
-            <p className="text-xs text-slate-400 font-medium">{rescuedCount} de {contactedCount} contactados</p>
           </div>
         </div>
 
@@ -698,36 +772,35 @@ const DashboardContinuidad = () => {
             <TrendingUp className="h-5 w-5 text-emerald-400 print:hidden" />
           </div>
           <div className="mt-2">
-            <h3 className="text-3xl font-black text-slate-800">{stats.transiciones}</h3>
-            <p className="text-xs text-slate-400 font-medium">Promociones a Joven/Adulto</p>
+            <div className="flex justify-between items-center bg-emerald-50 px-2 py-1 rounded mb-1">
+              <span className="text-xs font-bold text-emerald-700">Niños ➔ Jóvenes</span>
+              <span className="text-lg font-black text-emerald-600">{stats.transNinosJovenes}</span>
+            </div>
+            <div className="flex justify-between items-center bg-blue-50 px-2 py-1 rounded">
+              <span className="text-xs font-bold text-blue-700">Jóvenes ➔ Adultos</span>
+              <span className="text-lg font-black text-blue-600">{stats.transJovenesAdultos}</span>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 md:col-span-2 flex flex-col justify-between print:border print:shadow-none">
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
           <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Fuga: Nuevos vs Regulares</p>
-            <AlertTriangle className="h-5 w-5 text-amber-400 print:hidden" />
+            <p className="text-sm font-semibold text-slate-500">Movimientos Externos</p>
+            <GraduationCap className="h-5 w-5 text-indigo-400 print:hidden" />
           </div>
-          <div className="mt-2 flex items-end gap-3">
-            <div>
-              <span className="text-2xl font-black text-rose-600">{stats.nuevosLost}</span>
-              <span className="text-xs text-slate-500 ml-1">Nuevos Ingresos (L01)</span>
-            </div>
-            <div className="text-slate-300 pb-1">|</div>
-            <div>
-              <span className="text-2xl font-black text-slate-700">{stats.regularesLost}</span>
-              <span className="text-xs text-slate-500 ml-1">Regulares Perdidos</span>
-            </div>
+          <div className="mt-2">
+            <p className="text-xs font-bold text-slate-600">🎓 Graduados: <span className="text-lg font-black text-indigo-600 ml-1">{stats.graduados}</span></p>
+            <p className="text-xs font-bold text-slate-600 mt-1">🌟 Nuevos Ingresos: <span className="text-lg font-black text-emerald-600 ml-1">{stats.nuevosIngresos}</span></p>
+            <p className="text-xs font-bold text-slate-600 mt-1">🔄 Cambios Frecuencia: <span className="text-lg font-black text-amber-600 ml-1">{stats.cambiosFreq}</span></p>
           </div>
         </div>
+
       </div>
 
-      {/* CHARTS (Bar and Pie) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 print:break-inside-avoid">
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
             <h3 className="text-lg font-bold text-slate-800">Volumen de Deserción por Nivel</h3>
-            {/* TOGGLE PARA CAMBIAR CATEGORIAS EN EL GRAFICO */}
             <div className="flex gap-1 bg-slate-100 p-1 rounded-lg print:hidden">
               {["All", "Niños", "Jóvenes", "Adultos"].map(cat => (
                 <button 
@@ -760,27 +833,40 @@ const DashboardContinuidad = () => {
               {pieMode === "horario" ? "Ver por Frecuencia" : "Ver por Horario"}
             </button>
           </div>
-          <div className="h-64 w-full">
+          <div className="h-64 w-full cursor-pointer">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={chartDataPie} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value">
+                <Pie data={chartDataPie} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value" onClick={onClickPie}>
                   {chartDataPie.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={pieMode === "frecuencia" ? (FRECUENCIA_COLORS[entry.name] || "#94a3b8") : HORARIO_COLORS[index % HORARIO_COLORS.length]} />
                   ))}
                 </Pie>
                 <RechartsTooltip />
+                <Legend />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* CRM TABLE */}
+      {/* DYNAMIC TABLE VIEW */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:break-before-page">
         <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-4 items-center justify-between print:hidden">
-          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-slate-400"/> Lista de Gestión (CRM)
-          </h3>
+          <div className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-slate-400"/>
+            <h3 className="text-lg font-bold text-slate-800">
+              {tableView === "desercion" ? "Lista de Gestión (CRM)" : tableView === "nuevos" ? "Nuevos Ingresos / Nivelación" : "Cambios de Frecuencia"}
+            </h3>
+            <select 
+              value={tableView} 
+              onChange={(e) => { setTableView(e.target.value); resetFilters(); }} 
+              className="bg-slate-100 border border-slate-200 text-slate-700 text-xs py-1 px-2 rounded outline-none font-bold ml-2 cursor-pointer"
+            >
+              <option value="desercion">Ver: Deserciones (CRM)</option>
+              <option value="nuevos">Ver: Nuevos Ingresos</option>
+              <option value="cambios">Ver: Cambios de Frec.</option>
+            </select>
+          </div>
           <div className="flex items-center gap-3 w-full lg:w-auto">
             <div className="relative flex-1 lg:w-64">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -796,37 +882,41 @@ const DashboardContinuidad = () => {
           <table className="w-full text-left border-collapse whitespace-nowrap print:text-xs">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-semibold print:bg-gray-100 print:text-gray-800">
-                <th className="p-4 border-b border-slate-100">Estatus CRM</th>
+                {tableView === "desercion" && <th className="p-4 border-b border-slate-100">Estatus CRM</th>}
                 <th className="p-4 border-b border-slate-100">Estudiante</th>
                 <th className="p-4 border-b border-slate-100">Cédula</th>
                 <th className="p-4 border-b border-slate-100">Categoría</th>
                 <th className="p-4 border-b border-slate-100">Nivel</th>
-                <th className="p-4 border-b border-slate-100">Frecuencia</th>
+                <th className="p-4 border-b border-slate-100">Frecuencia {tableView === "cambios" ? "Nueva" : ""}</th>
+                {tableView === "cambios" && <th className="p-4 border-b border-slate-100">Frec. Anterior</th>}
                 <th className="p-4 border-b border-slate-100">Horario</th>
                 <th className="p-4 border-b border-slate-100">Email</th>
                 <th className="p-4 border-b border-slate-100 print:hidden">Contacto Directo</th>
                 <th className="p-4 border-b border-slate-100">Teléfono</th>
-                <th className="p-4 border-b border-slate-100 text-center print:hidden">Acción CRM</th>
+                {tableView === "desercion" && <th className="p-4 border-b border-slate-100 text-center print:hidden">Acción CRM</th>}
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
               {filteredData.map((s) => {
                 const crm = crmData[s.id] || { status: "Pendiente" };
-                const isManaged = crm.status !== "Pendiente";
+                const isManaged = tableView === "desercion" && crm.status !== "Pendiente";
                 const phoneClean = s.phone ? s.phone.replace(/\D/g, "") : "";
 
                 return (
                   <tr key={s.id} className={`hover:bg-slate-50 ${isManaged ? 'bg-slate-50/50' : ''} print:border-b`}>
-                    <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold border print:border-none print:px-0 ${getCrmStatusColor(crm.status)}`}>
-                        {crm.status}
-                      </span>
-                    </td>
+                    {tableView === "desercion" && (
+                      <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold border print:border-none print:px-0 ${getCrmStatusColor(crm.status)}`}>
+                          {crm.status}
+                        </span>
+                      </td>
+                    )}
                     <td className="p-4 font-bold text-slate-800">{s.name}</td>
                     <td className="p-4 text-slate-500 font-mono text-xs">{s.id}</td>
                     <td className="p-4 text-slate-600">{s.category}</td>
                     <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 print:bg-transparent print:px-0">{s.levelNorm}</span></td>
                     <td className="p-4 text-slate-600">{s.frequencyNorm}</td>
+                    {tableView === "cambios" && <td className="p-4 text-amber-600 font-medium">{s.oldFrequency}</td>}
                     <td className="p-4 text-slate-600">{s.scheduleBlock}</td>
                     <td className="p-4 text-slate-500">{s.email || "N/A"}</td>
                     <td className="p-4 flex items-center gap-2 print:hidden">
@@ -842,11 +932,13 @@ const DashboardContinuidad = () => {
                       ) : <span className="text-xs text-slate-400">N/A</span>}
                     </td>
                     <td className="p-4 text-slate-600">{s.phone || "N/A"}</td>
-                    <td className="p-4 text-center print:hidden">
-                      <button onClick={() => setCrmModal({ isOpen: true, student: s })} className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 mx-auto transition-colors">
-                        <Edit3 className="h-3 w-3"/> Gestionar
-                      </button>
-                    </td>
+                    {tableView === "desercion" && (
+                      <td className="p-4 text-center print:hidden">
+                        <button onClick={() => setCrmModal({ isOpen: true, student: s })} className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 mx-auto transition-colors">
+                          <Edit3 className="h-3 w-3"/> Gestionar
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
