@@ -11,7 +11,7 @@ import {
 import {
   Search, Users, Clock, AlertTriangle, Download, CheckCircle, XCircle, Filter, 
   Phone, Upload, RefreshCw, Trash2, MessageCircle, 
-  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap
+  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap, ArrowRightRight
 } from "lucide-react";
 
 import { parseCevazPdf, __HORARIO_BLOQUES__ } from "./utils/parseCevazPdf";
@@ -155,10 +155,9 @@ const uniqByIdPreferLatest = (arr) => {
   return Array.from(map.values());
 };
 
-const DashboardContinuidad = () => {
+export default function DashboardContinuidad() {
   const [activeTab, setActiveTab] = useState("upload");
-  const fileInputRef = useRef(null);
-
+  
   const [pdfOldFiles, setPdfOldFiles] = useState([]);
   const [pdfNewFiles, setPdfNewFiles] = useState([]);
 
@@ -166,22 +165,28 @@ const DashboardContinuidad = () => {
   const [errorMsg, setErrorMsg] = useState("");
   const [warnMsg, setWarnMsg] = useState("");
 
+  // Listas de datos procesados
   const [oldStudents, setOldStudents] = useState([]);
   const [newStudents, setNewStudents] = useState([]);
   const [dropouts, setDropouts] = useState([]);
-  const [newStudentsList, setNewStudentsList] = useState([]);
+  const [nuevosL1List, setNuevosL1List] = useState([]);
+  const [nivelacionList, setNivelacionList] = useState([]);
   const [freqChangersList, setFreqChangersList] = useState([]);
+  const [graduadosList, setGraduadosList] = useState([]);
+  const [transNinosJovenesList, setTransNinosJovenesList] = useState([]);
+  const [transJovenesAdultosList, setTransJovenesAdultosList] = useState([]);
 
   const [crmData, setCrmData] = useState({});
   const [crmModal, setCrmModal] = useState({ isOpen: false, student: null });
 
-  const [tableView, setTableView] = useState("desercion"); // desercion | nuevos | cambios
-  const [filterFugaType, setFilterFugaType] = useState("All"); // All | Nuevos | Regulares
+  // Vistas de la tabla
+  const [tableView, setTableView] = useState("desercion"); // desercion | nuevosL1 | nivelacion | cambios | graduados | transNinosJovenes | transJovenesAdultos
+  const [filterFugaType, setFilterFugaType] = useState("All"); 
 
   const [stats, setStats] = useState({
     eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0,
     nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, 
-    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0
+    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosL1: 0, nivelacion: 0, cambiosFreq: 0
   });
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -204,11 +209,13 @@ const DashboardContinuidad = () => {
 
   const resetAll = () => {
     setPdfOldFiles([]); setPdfNewFiles([]); setOldStudents([]); setNewStudents([]); setDropouts([]);
-    setNewStudentsList([]); setFreqChangersList([]); setCrmData({}); 
+    setNuevosL1List([]); setNivelacionList([]); setFreqChangersList([]); 
+    setGraduadosList([]); setTransNinosJovenesList([]); setTransJovenesAdultosList([]);
+    setCrmData({}); 
     setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All");
     setSelectedLevel("All"); setSelectedHorario("All"); setLevelChartCategory("All"); setPieMode("horario");
     setTableView("desercion"); setFilterFugaType("All");
-    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0 });
+    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosL1: 0, nivelacion: 0, cambiosFreq: 0 });
     setErrorMsg(""); setWarnMsg(""); setActiveTab("upload");
   };
 
@@ -245,15 +252,15 @@ const DashboardContinuidad = () => {
       const nuevosLost = lost.filter(s => s.levelNorm === "L01").length;
       const regularesLost = lost.length - nuevosLost;
 
-      let transNinosJovenes = 0;
-      let transJovenesAdultos = 0;
+      const transNinosJovenesArr = [];
+      const transJovenesAdultosArr = [];
       const freqChangersArr = [];
 
       reenrolled.forEach(newS => {
         const oldS = oldU.find(o => o.id === newS.id);
         if (oldS) {
-          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNinosJovenes++;
-          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJovenesAdultos++;
+          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNinosJovenesArr.push({...newS, oldCategory: oldS.category});
+          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJovenesAdultosArr.push({...newS, oldCategory: oldS.category});
           if (oldS.frequencyNorm !== newS.frequencyNorm && oldS.frequencyNorm !== "N/A" && newS.frequencyNorm !== "N/A") {
             freqChangersArr.push({...newS, oldFrequency: oldS.frequencyNorm});
           }
@@ -261,6 +268,8 @@ const DashboardContinuidad = () => {
       });
 
       const newStudentsArr = newU.filter(s => !oldIds.has(s.id));
+      const nuevosL1Arr = newStudentsArr.filter(s => s.levelNorm === "L01");
+      const nivelacionArr = newStudentsArr.filter(s => s.levelNorm !== "L01");
 
       const activeCourses = new Set(newU.filter(s => s.courseId).map(s => s.courseId));
       const avgDensity = activeCourses.size > 0 ? (newU.length / activeCourses.size).toFixed(1) : 0;
@@ -272,12 +281,13 @@ const DashboardContinuidad = () => {
       const topHorarioFugas = Object.entries(byHorario).sort((a,b) => b[1]-a[1])[0]?.[0] || "N/A";
 
       setOldStudents(oldU); setNewStudents(newU); setDropouts(lost); setCrmData({});
-      setNewStudentsList(newStudentsArr); setFreqChangersList(freqChangersArr);
+      setNuevosL1List(nuevosL1Arr); setNivelacionList(nivelacionArr); setFreqChangersList(freqChangersArr);
+      setGraduadosList(grads); setTransNinosJovenesList(transNinosJovenesArr); setTransJovenesAdultosList(transJovenesAdultosArr);
       
       setStats({ 
         eligibleOld: eligibleOld.length, reenrolled: reenrolled.length, reenrolledPct, lost: lost.length, lostPct, 
-        nuevosLost, regularesLost, transNinosJovenes, transJovenesAdultos, avgDensity, topHorarioFugas,
-        graduados: grads.length, nuevosIngresos: newStudentsArr.length, cambiosFreq: freqChangersArr.length
+        nuevosLost, regularesLost, transNinosJovenes: transNinosJovenesArr.length, transJovenesAdultos: transJovenesAdultosArr.length, avgDensity, topHorarioFugas,
+        graduados: grads.length, nuevosL1: nuevosL1Arr.length, nivelacion: nivelacionArr.length, cambiosFreq: freqChangersArr.length
       });
 
       resetFilters();
@@ -350,6 +360,8 @@ const DashboardContinuidad = () => {
         return { ...baseRow, "Estatus CRM": crm.status || "Pendiente", Motivo: crm.motive || "", Notas: crm.notes || "" };
       } else if (tableView === "cambios") {
         return { ...baseRow, "Frecuencia Anterior": s.oldFrequency || "N/A" };
+      } else if (tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") {
+        return { ...baseRow, "Categoría Anterior": s.oldCategory || "N/A" };
       } else {
         return baseRow;
       }
@@ -391,6 +403,7 @@ const DashboardContinuidad = () => {
      REPORTES CORPORATIVOS
      ========================= */
   const generatePDFReport = () => {
+    // ... (El reporte PDF se mantiene igual, adaptando las variables nuevas si se desea)
     const docDefinition = {
       pageSize: 'A4',
       pageMargins: [40, 60, 40, 60],
@@ -427,7 +440,7 @@ const DashboardContinuidad = () => {
           ul: [
             { text: `Fuga Estructural: Se registra una pérdida de ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.`, margin: [0, 0, 0, 5] },
             { text: `Horario Crítico: El bloque horario con mayor índice de fuga reportado es "${stats.topHorarioFugas}".`, margin: [0, 0, 0, 5] },
-            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Ingresos por Nivelación y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
+            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosL1} Ingresos L1, ${stats.nivelacion} Nivelaciones y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
             { text: `Gestión de CRM: De ${stats.lost} estudiantes perdidos, se han contactado ${contactedCount} y se han logrado rescatar exitosamente a ${rescuedCount}.` }
           ],
           margin: [0, 0, 0, 20]
@@ -495,7 +508,7 @@ const DashboardContinuidad = () => {
           new Docx.Paragraph({ text: " " }),
           new Docx.Paragraph({ text: "2. Indicadores Clave de Rendimiento (KPIs)", heading: Docx.HeadingLevel.HEADING_3 }),
           new Docx.Paragraph({ text: `• Transición Generacional: ${stats.transNinosJovenes + stats.transJovenesAdultos} alumnos promovidos exitosamente entre categorías.` }),
-          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Nivelaciones/Nuevos.` }),
+          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosL1} Ingresos L1, ${stats.nivelacion} Nivelaciones.` }),
           new Docx.Paragraph({ text: `• Densidad Promedio: ${stats.avgDensity} alumnos por salón activo en el periodo actual.` }),
           new Docx.Paragraph({ text: `• Comportamiento de Fuga: Se perdieron ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.` }),
           new Docx.Paragraph({ text: `• Horario Crítico: El bloque con mayor índice de fuga registrado fue "${stats.topHorarioFugas}".` }),
@@ -516,8 +529,21 @@ const DashboardContinuidad = () => {
   /* =========================
      FILTROS Y DATOS DE TABLA
      ========================= */
+  const getActiveArray = () => {
+    switch (tableView) {
+      case "desercion": return dropouts;
+      case "nuevosL1": return nuevosL1List;
+      case "nivelacion": return nivelacionList;
+      case "cambios": return freqChangersList;
+      case "graduados": return graduadosList;
+      case "transNinosJovenes": return transNinosJovenesList;
+      case "transJovenesAdultos": return transJovenesAdultosList;
+      default: return dropouts;
+    }
+  };
+
   const filterOptions = useMemo(() => {
-    const activeArr = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
+    const activeArr = getActiveArray();
     const cats = Array.from(new Set(activeArr.map((s) => s.category).filter(Boolean))).sort();
     const lvls = Array.from(new Set(activeArr.map((s) => s.levelNorm).filter(Boolean))).sort();
     const hrs = Array.from(new Set(activeArr.map((s) => s.scheduleBlock).filter(Boolean)));
@@ -530,11 +556,11 @@ const DashboardContinuidad = () => {
       horarios: ["All", ...known.filter(h => hrs.includes(h)), ...hrs.filter(h => !knownSet.has(h)).sort()],
       frecuencias: ["All", ...FRECUENCIA_ORDER.filter(f => freqs.includes(f)), ...freqs.filter(f => !FRECUENCIA_ORDER.includes(f)).sort()],
     };
-  }, [dropouts, newStudentsList, freqChangersList, tableView]);
+  }, [dropouts, nuevosL1List, nivelacionList, freqChangersList, graduadosList, transNinosJovenesList, transJovenesAdultosList, tableView]);
 
   const filteredData = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const sourceData = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
+    const sourceData = getActiveArray();
 
     return sourceData.filter((s) => {
       const matchesSearch = !q || (s.name || "").toLowerCase().includes(q) || (s.id || "").includes(q) || (s.email || "").toLowerCase().includes(q) || (s.phone || "").includes(q);
@@ -551,7 +577,7 @@ const DashboardContinuidad = () => {
 
       return matchesSearch && matchesCategory && matchesFrecuencia && matchesLevel && matchesHorario && matchesFugaType;
     });
-  }, [dropouts, newStudentsList, freqChangersList, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
+  }, [dropouts, nuevosL1List, nivelacionList, freqChangersList, graduadosList, transNinosJovenesList, transJovenesAdultosList, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
 
   const barSource = useMemo(() => levelChartCategory === "All" ? dropouts : dropouts.filter((s) => s.category === levelChartCategory), [dropouts, levelChartCategory]);
 
@@ -567,7 +593,6 @@ const DashboardContinuidad = () => {
     }, {});
     return Object.keys(byKey).map((k) => ({ name: k, value: byKey[k] })).sort((a, b) => b.value - a.value);
   }, [dropouts, pieMode]);
-
 
   if (activeTab === "upload") {
     return (
@@ -636,369 +661,331 @@ const DashboardContinuidad = () => {
             )}
           </div>
         </div>
-
-        <div className="mt-6 flex flex-col sm:flex-row gap-3">
-          <button onClick={processPdfs} disabled={loading} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-6 py-3 rounded-xl font-bold shadow flex items-center gap-2">
-            <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
-            {loading ? "Procesando..." : "Procesar y Comparar"}
+        
+        <div className="mt-8 flex justify-center">
+          <button 
+            onClick={processPdfs} 
+            disabled={loading || !pdfOldFiles.length || !pdfNewFiles.length}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-8 rounded-lg shadow-md disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+          >
+            {loading ? <RefreshCw className="h-5 w-5 animate-spin" /> : <FileText className="h-5 w-5" />}
+            {loading ? "Procesando documentos..." : "Procesar PDFs y Generar Dashboard"}
           </button>
         </div>
       </div>
     );
   }
 
+  // VISTA DASHBOARD
   return (
-    <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800 relative print:bg-white print:p-0" id="dashboard-content">
-      
-      <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="h-8 w-8 text-blue-600" /> Dashboard de Continuidad
-          </h1>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col">
+      {/* Navbar Superior */}
+      <nav className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center gap-3">
+          <TrendingUp className="h-6 w-6 text-blue-600" />
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight">Continuidad Académica</h1>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setActiveTab("upload")} className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-lg shadow-sm text-xs font-medium">
-            <Upload className="h-4 w-4" /> PDFs
+        <div className="flex items-center gap-3">
+          <button onClick={resetAll} className="text-slate-500 hover:text-slate-700 flex items-center gap-2 px-3 py-2 rounded-md hover:bg-slate-100 transition-colors text-sm font-medium">
+            <RefreshCw className="h-4 w-4" /> Cargar Nuevos
+          </button>
+          <div className="h-6 border-l border-slate-300 mx-1"></div>
+          <button onClick={generateWordReport} className="text-slate-600 hover:text-blue-600 flex items-center gap-2 px-3 py-2 rounded-md hover:bg-blue-50 transition-colors text-sm font-medium">
+            <FileText className="h-4 w-4" /> Word
+          </button>
+          <button onClick={generatePDFReport} className="text-slate-600 hover:text-red-600 flex items-center gap-2 px-3 py-2 rounded-md hover:bg-red-50 transition-colors text-sm font-medium">
+            <File className="h-4 w-4" /> PDF
+          </button>
+        </div>
+      </nav>
+
+      <main className="flex-1 p-6 max-w-[1600px] mx-auto w-full">
+        {warnMsg && (
+          <div className="mb-6 p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-start gap-3 shadow-sm">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5 text-amber-600" />
+            <p>{warnMsg}</p>
+          </div>
+        )}
+
+        {/* Tarjetas Superiores */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col justify-center">
+            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Base Regular Elegible</h3>
+            <div className="text-4xl font-bold text-slate-800">{stats.eligibleOld}</div>
+            <p className="text-xs text-slate-400 mt-2">Alumnos del periodo anterior (sin graduados)</p>
+          </div>
+          
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col justify-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <CheckCircle className="h-24 w-24 text-emerald-500" />
+            </div>
+            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Reinscritos</h3>
+            <div className="flex items-baseline gap-3">
+              <div className="text-4xl font-bold text-emerald-600">{stats.reenrolled}</div>
+              <div className="text-lg font-medium text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded">{stats.reenrolledPct}%</div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Retención de la base elegible</p>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col justify-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10">
+              <XCircle className="h-24 w-24 text-red-500" />
+            </div>
+            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Deserción Total</h3>
+            <div className="flex items-baseline gap-3">
+              <div className="text-4xl font-bold text-red-600">{stats.lost}</div>
+              <div className="text-lg font-medium text-red-500 bg-red-50 px-2 py-0.5 rounded">{stats.lostPct}%</div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Alumnos que no continuaron</p>
+          </div>
+        </div>
+
+        {/* KPIs Clickeables */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+          <button onClick={() => setTableView("graduados")} className={`p-4 rounded-xl border text-left transition-colors ${tableView === "graduados" ? "bg-blue-50 border-blue-300 shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+            <GraduationCap className="h-5 w-5 text-indigo-500 mb-2" />
+            <div className="text-2xl font-bold text-slate-700">{stats.graduados}</div>
+            <div className="text-xs font-medium text-slate-500">Graduados Detectados</div>
           </button>
           
-          <input type="file" accept=".xlsx, .xls" ref={fileInputRef} className="hidden" onChange={importExcel} />
-          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg shadow-sm text-xs font-medium">
-            <FileUp className="h-4 w-4" /> Importar BD
+          <button onClick={() => setTableView("transNinosJovenes")} className={`p-4 rounded-xl border text-left transition-colors ${tableView === "transNinosJovenes" ? "bg-blue-50 border-blue-300 shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+            <ArrowRightRight className="h-5 w-5 text-blue-500 mb-2" />
+            <div className="text-2xl font-bold text-slate-700">{stats.transNinosJovenes}</div>
+            <div className="text-xs font-medium text-slate-500">Niños → Jóvenes</div>
           </button>
 
-          <button onClick={exportExcel} disabled={!dropouts.length} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
-            <Save className="h-4 w-4" /> Excel
+          <button onClick={() => setTableView("transJovenesAdultos")} className={`p-4 rounded-xl border text-left transition-colors ${tableView === "transJovenesAdultos" ? "bg-blue-50 border-blue-300 shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+            <ArrowRightRight className="h-5 w-5 text-cyan-500 mb-2" />
+            <div className="text-2xl font-bold text-slate-700">{stats.transJovenesAdultos}</div>
+            <div className="text-xs font-medium text-slate-500">Jóvenes → Adultos</div>
           </button>
-          <button onClick={generateWordReport} disabled={!dropouts.length} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
-            <File className="h-4 w-4" /> Word
+
+          <button onClick={() => setTableView("nuevosL1")} className={`p-4 rounded-xl border text-left transition-colors ${tableView === "nuevosL1" ? "bg-blue-50 border-blue-300 shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+            <UserPlus className="h-5 w-5 text-emerald-500 mb-2" />
+            <div className="text-2xl font-bold text-slate-700">{stats.nuevosL1}</div>
+            <div className="text-xs font-medium text-slate-500">Nuevos Ingresos L1</div>
           </button>
-          <button onClick={generatePDFReport} disabled={!dropouts.length} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
-            <FileText className="h-4 w-4" /> PDF
+
+          <button onClick={() => setTableView("nivelacion")} className={`p-4 rounded-xl border text-left transition-colors ${tableView === "nivelacion" ? "bg-blue-50 border-blue-300 shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+            <UserPlus className="h-5 w-5 text-teal-500 mb-2" />
+            <div className="text-2xl font-bold text-slate-700">{stats.nivelacion}</div>
+            <div className="text-xs font-medium text-slate-500">Pruebas Nivelación</div>
           </button>
-          <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
-            <Printer className="h-4 w-4" /> Imprimir
+
+          <button onClick={() => setTableView("cambios")} className={`p-4 rounded-xl border text-left transition-colors ${tableView === "cambios" ? "bg-blue-50 border-blue-300 shadow-sm" : "bg-white border-slate-200 hover:bg-slate-50"}`}>
+            <Clock className="h-5 w-5 text-amber-500 mb-2" />
+            <div className="text-2xl font-bold text-slate-700">{stats.cambiosFreq}</div>
+            <div className="text-xs font-medium text-slate-500">Cambios de Frec.</div>
           </button>
         </div>
-      </header>
 
-      {/* DASHBOARD INDICATORS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Total Reinscritos</p>
-            <CheckCircle className="h-5 w-5 text-emerald-500 print:hidden" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-4xl font-black text-emerald-600">{stats.reenrolledPct}%</h3>
-            <p className="text-lg font-bold text-slate-700">({stats.reenrolled})</p>
-          </div>
-          <p className="text-xs text-slate-400 font-medium">De {stats.eligibleOld} regulares</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Total Pérdida</p>
-            <XCircle className="h-5 w-5 text-rose-500 print:hidden" />
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <h3 className="text-4xl font-black text-rose-600">{stats.lostPct}%</h3>
-            <p className="text-lg font-bold text-slate-700">({stats.lost})</p>
-          </div>
-          <p className="text-xs text-slate-400 font-medium">De {stats.eligibleOld} regulares</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Fuga: Nuevos vs Regulares</p>
-            <AlertTriangle className="h-5 w-5 text-amber-400 print:hidden" />
-          </div>
-          <div className="mt-2 flex items-end gap-4">
-            <div 
-              className={`cursor-pointer px-2 py-1 rounded transition-colors ${filterFugaType === 'Nuevos' ? 'bg-rose-100 ring-2 ring-rose-400' : 'hover:bg-slate-100'}`} 
-              onClick={() => { setTableView("desercion"); setFilterFugaType(prev => prev === 'Nuevos' ? 'All' : 'Nuevos'); }}
-            >
-              <span className="text-2xl font-black text-rose-600">{stats.nuevosLost}</span>
-              <span className="text-xs font-bold text-slate-500 ml-1">L01</span>
-            </div>
-            <div className="text-slate-300 pb-2">|</div>
-            <div 
-              className={`cursor-pointer px-2 py-1 rounded transition-colors ${filterFugaType === 'Regulares' ? 'bg-slate-200 ring-2 ring-slate-400' : 'hover:bg-slate-100'}`} 
-              onClick={() => { setTableView("desercion"); setFilterFugaType(prev => prev === 'Regulares' ? 'All' : 'Regulares'); }}
-            >
-              <span className="text-2xl font-black text-slate-700">{stats.regularesLost}</span>
-              <span className="text-xs font-bold text-slate-500 ml-1">Regulares</span>
-            </div>
-          </div>
-          {filterFugaType !== "All" && <p className="text-xs text-blue-500 font-semibold mt-1">Filtro activo. Clic para quitar.</p>}
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-b-4 border-b-blue-500 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Tasa Éxito Rescate</p>
-            <Phone className="h-5 w-5 text-blue-500 print:hidden" />
-          </div>
-          <div className="mt-2">
-            <h3 className="text-3xl font-black text-blue-600">{winBackRate}%</h3>
-            <p className="text-xs text-slate-400 font-medium">{rescuedCount} de {contactedCount} contactados</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Horario Crítico de Fugas</p>
-            <Clock className="h-5 w-5 text-amber-500 print:hidden" />
-          </div>
-          <div className="mt-2">
-            <h3 className="text-lg font-black text-slate-800 truncate" title={stats.topHorarioFugas}>{stats.topHorarioFugas}</h3>
-            <p className="text-xs text-slate-400 font-medium">Bloque con mayor deserción</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Densidad Promedio</p>
-            <Users className="h-5 w-5 text-indigo-400 print:hidden" />
-          </div>
-          <div className="mt-2">
-            <h3 className="text-3xl font-black text-slate-800">{stats.avgDensity}</h3>
-            <p className="text-xs text-slate-400 font-medium">Alumnos por salón (Actual)</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Transición Categorías</p>
-            <TrendingUp className="h-5 w-5 text-emerald-400 print:hidden" />
-          </div>
-          <div className="mt-2">
-            <div className="flex justify-between items-center bg-emerald-50 px-2 py-1 rounded mb-1">
-              <span className="text-xs font-bold text-emerald-700">Niños ➔ Jóvenes</span>
-              <span className="text-lg font-black text-emerald-600">{stats.transNinosJovenes}</span>
-            </div>
-            <div className="flex justify-between items-center bg-blue-50 px-2 py-1 rounded">
-              <span className="text-xs font-bold text-blue-700">Jóvenes ➔ Adultos</span>
-              <span className="text-lg font-black text-blue-600">{stats.transJovenesAdultos}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">Movimientos Externos</p>
-            <GraduationCap className="h-5 w-5 text-indigo-400 print:hidden" />
-          </div>
-          <div className="mt-2">
-            <p className="text-xs font-bold text-slate-600">🎓 Graduados: <span className="text-lg font-black text-indigo-600 ml-1">{stats.graduados}</span></p>
-            <p className="text-xs font-bold text-slate-600 mt-1">🌟 Nuevos Ingresos: <span className="text-lg font-black text-emerald-600 ml-1">{stats.nuevosIngresos}</span></p>
-            <p className="text-xs font-bold text-slate-600 mt-1">🔄 Cambios Frecuencia: <span className="text-lg font-black text-amber-600 ml-1">{stats.cambiosFreq}</span></p>
-          </div>
-        </div>
-
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 print:break-inside-avoid">
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
-            <h3 className="text-lg font-bold text-slate-800">Volumen de Deserción por Nivel</h3>
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg print:hidden">
-              {["All", "Niños", "Jóvenes", "Adultos"].map(cat => (
-                <button 
-                  key={cat} 
-                  onClick={() => setLevelChartCategory(cat)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${levelChartCategory === cat ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  {cat === "All" ? "Todos" : cat}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartDataLevel} onClick={(e) => {if(e?.activeLabel) setSelectedLevel(e.activeLabel)}}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
-                <YAxis />
-                <RechartsTooltip cursor={{ fill: "#f1f5f9" }} />
-                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Estudiantes" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-slate-800">Fuga por {pieMode === "horario" ? "Horario" : "Frecuencia"}</h3>
-            <button onClick={() => setPieMode(prev => prev === "horario" ? "frecuencia" : "horario")} className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded print:hidden">
-              {pieMode === "horario" ? "Ver por Frecuencia" : "Ver por Horario"}
-            </button>
-          </div>
-          <div className="h-64 w-full cursor-pointer">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={chartDataPie} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value" onClick={onClickPie}>
-                  {chartDataPie.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={pieMode === "frecuencia" ? (FRECUENCIA_COLORS[entry.name] || "#94a3b8") : HORARIO_COLORS[index % HORARIO_COLORS.length]} />
-                  ))}
-                </Pie>
-                <RechartsTooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* DYNAMIC TABLE VIEW */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:break-before-page">
-        <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-4 items-center justify-between print:hidden">
-          <div className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-slate-400"/>
-            <h3 className="text-lg font-bold text-slate-800">
-              {tableView === "desercion" ? "Lista de Gestión (CRM)" : tableView === "nuevos" ? "Nuevos Ingresos / Nivelación" : "Cambios de Frecuencia"}
-            </h3>
-            <select 
-              value={tableView} 
-              onChange={(e) => { setTableView(e.target.value); resetFilters(); }} 
-              className="bg-slate-100 border border-slate-200 text-slate-700 text-xs py-1 px-2 rounded outline-none font-bold ml-2 cursor-pointer"
-            >
-              <option value="desercion">Ver: Deserciones (CRM)</option>
-              <option value="nuevos">Ver: Nuevos Ingresos</option>
-              <option value="cambios">Ver: Cambios de Frec.</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-3 w-full lg:w-auto">
-            <div className="relative flex-1 lg:w-64">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-              <input type="text" placeholder="Buscar alumno..." className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg w-full text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            </div>
-            <button onClick={resetFilters} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-slate-200">
-              <Filter className="h-4 w-4"/> Limpiar
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse whitespace-nowrap print:text-xs">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-semibold print:bg-gray-100 print:text-gray-800">
-                {tableView === "desercion" && <th className="p-4 border-b border-slate-100">Estatus CRM</th>}
-                <th className="p-4 border-b border-slate-100">Estudiante</th>
-                <th className="p-4 border-b border-slate-100">Cédula</th>
-                <th className="p-4 border-b border-slate-100">Categoría</th>
-                <th className="p-4 border-b border-slate-100">Nivel</th>
-                <th className="p-4 border-b border-slate-100">Frecuencia {tableView === "cambios" ? "Nueva" : ""}</th>
-                {tableView === "cambios" && <th className="p-4 border-b border-slate-100">Frec. Anterior</th>}
-                <th className="p-4 border-b border-slate-100">Horario</th>
-                <th className="p-4 border-b border-slate-100">Email</th>
-                <th className="p-4 border-b border-slate-100 print:hidden">Contacto Directo</th>
-                <th className="p-4 border-b border-slate-100">Teléfono</th>
-                {tableView === "desercion" && <th className="p-4 border-b border-slate-100 text-center print:hidden">Acción CRM</th>}
-              </tr>
-            </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
-              {filteredData.map((s) => {
-                const crm = crmData[s.id] || { status: "Pendiente" };
-                const isManaged = tableView === "desercion" && crm.status !== "Pendiente";
-                const phoneClean = s.phone ? s.phone.replace(/\D/g, "") : "";
-
-                return (
-                  <tr key={s.id} className={`hover:bg-slate-50 ${isManaged ? 'bg-slate-50/50' : ''} print:border-b`}>
-                    {tableView === "desercion" && (
-                      <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold border print:border-none print:px-0 ${getCrmStatusColor(crm.status)}`}>
-                          {crm.status}
-                        </span>
-                      </td>
-                    )}
-                    <td className="p-4 font-bold text-slate-800">{s.name}</td>
-                    <td className="p-4 text-slate-500 font-mono text-xs">{s.id}</td>
-                    <td className="p-4 text-slate-600">{s.category}</td>
-                    <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 print:bg-transparent print:px-0">{s.levelNorm}</span></td>
-                    <td className="p-4 text-slate-600">{s.frequencyNorm}</td>
-                    {tableView === "cambios" && <td className="p-4 text-amber-600 font-medium">{s.oldFrequency}</td>}
-                    <td className="p-4 text-slate-600">{s.scheduleBlock}</td>
-                    <td className="p-4 text-slate-500">{s.email || "N/A"}</td>
-                    <td className="p-4 flex items-center gap-2 print:hidden">
-                      {s.phone ? (
-                        <>
-                          <a href={`https://wa.me/${phoneClean}`} target="_blank" rel="noreferrer" className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors" title="Escribir al WhatsApp">
-                            <MessageCircle className="h-4 w-4" />
-                          </a>
-                          <a href={`tel:${s.phone}`} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors" title="Llamada Telefónica">
-                            <Phone className="h-4 w-4" />
-                          </a>
-                        </>
-                      ) : <span className="text-xs text-slate-400">N/A</span>}
-                    </td>
-                    <td className="p-4 text-slate-600">{s.phone || "N/A"}</td>
-                    {tableView === "desercion" && (
-                      <td className="p-4 text-center print:hidden">
-                        <button onClick={() => setCrmModal({ isOpen: true, student: s })} className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 mx-auto transition-colors">
-                          <Edit3 className="h-3 w-3"/> Gestionar
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* CRM MODAL */}
-      {crmModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 print:hidden">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-slate-800">Gestionar Alumno</h3>
-                <p className="text-xs text-slate-500">{crmModal.student.name} ({crmModal.student.id})</p>
-              </div>
-              <button onClick={() => setCrmModal({isOpen: false, student: null})} className="text-slate-400 hover:text-slate-600"><XCircle className="h-6 w-6"/></button>
+        {/* Sección de la Tabla Activa */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm mb-8 overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 hide-scrollbar w-full md:w-auto">
+              <button onClick={() => setTableView("desercion")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "desercion" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Deserción ({stats.lost})</button>
+              <button onClick={() => setTableView("cambios")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "cambios" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Cambios Frec. ({stats.cambiosFreq})</button>
+              <button onClick={() => setTableView("nuevosL1")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "nuevosL1" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Nuevos L1 ({stats.nuevosL1})</button>
+              <button onClick={() => setTableView("nivelacion")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "nivelacion" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Nivelación ({stats.nivelacion})</button>
+              <button onClick={() => setTableView("graduados")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "graduados" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Graduados ({stats.graduados})</button>
+              <button onClick={() => setTableView("transNinosJovenes")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "transNinosJovenes" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Niños → Jv. ({stats.transNinosJovenes})</button>
+              <button onClick={() => setTableView("transJovenesAdultos")} className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${tableView === "transJovenesAdultos" ? "bg-blue-600 text-white shadow" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Jv. → Ad. ({stats.transJovenesAdultos})</button>
             </div>
             
-            <form onSubmit={saveCrmData} className="p-5 flex flex-col gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Estatus del Rescate</label>
-                <select name="status" defaultValue={crmData[crmModal.student.id]?.status || "Pendiente"} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500">
-                  <option value="Pendiente">Pendiente (No contactado)</option>
-                  <option value="En Gestión">En Gestión (Esperando respuesta)</option>
-                  <option value="Rescatado">Rescatado (Se reinscribió)</option>
-                  <option value="Pérdida Definitiva">Pérdida Definitiva</option>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={exportExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+                <Download className="h-4 w-4" /> Exportar Vista
+              </button>
+              {tableView === "desercion" && (
+                <label className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer transition-colors">
+                  <Upload className="h-4 w-4" /> Importar CRM
+                  <input type="file" accept=".xlsx, .xls" className="hidden" onChange={importExcel} />
+                </label>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6">
+            {/* Filtros */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 xl:grid-cols-6 gap-3 mb-6">
+              <div className="relative col-span-1 md:col-span-2">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input type="text" placeholder="Buscar por Cédula, Nombre, Email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 pr-4 py-2 w-full border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700">
+                {filterOptions.categories.map(c => <option key={c} value={c}>{c === "All" ? "Todas las Categorías" : c}</option>)}
+              </select>
+              <select value={selectedLevel} onChange={(e) => setSelectedLevel(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700">
+                {filterOptions.levels.map(l => <option key={l} value={l}>{l === "All" ? "Todos los Niveles" : l}</option>)}
+              </select>
+              <select value={selectedHorario} onChange={(e) => setSelectedHorario(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700">
+                {filterOptions.horarios.map(h => <option key={h} value={h}>{h === "All" ? "Todos los Horarios" : h}</option>)}
+              </select>
+              <select value={selectedFrecuencia} onChange={(e) => setSelectedFrecuencia(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700">
+                {filterOptions.frecuencias.map(f => <option key={f} value={f}>{f === "All" ? "Todas las Frecuencias" : f}</option>)}
+              </select>
+              {tableView === "desercion" && (
+                <select value={filterFugaType} onChange={(e) => setFilterFugaType(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700 xl:col-start-6">
+                  <option value="All">Fuga Total</option>
+                  <option value="Nuevos">Sólo Nuevos (L01)</option>
+                  <option value="Regulares">Sólo Regulares</option>
                 </select>
+              )}
+            </div>
+
+            {/* ADVERTENCIA DE NUEVOS INGRESOS */}
+            {(tableView === "nuevosL1" || tableView === "nivelacion") && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg flex items-start gap-3 mb-6 shadow-sm">
+                <AlertTriangle className="h-6 w-6 flex-shrink-0 mt-0.5 text-amber-600" />
+                <div>
+                  <h4 className="font-bold text-sm mb-1">Validación de Ingresos (¡Importante!)</h4>
+                  <p className="text-sm">
+                    Esta herramienta únicamente compara la información extraída de los PDFs cargados y detecta IDs que no estaban en la lista anterior. Es posible que un estudiante tenga un historial más amplio registrado en el sistema oficial (SGA). <strong>Se recomienda encarecidamente verificar el récord del estudiante en SGA antes de tomar cualquier decisión definitiva</strong> para validar si realmente es un ingreso nuevo o una reactivación.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Tabla */}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[500px] overflow-y-auto">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-100 text-slate-600 sticky top-0 shadow-sm z-10">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold border-b">Cédula</th>
+                    <th className="px-4 py-3 font-semibold border-b">Nombre del Estudiante</th>
+                    <th className="px-4 py-3 font-semibold border-b">Categoría / Nivel</th>
+                    <th className="px-4 py-3 font-semibold border-b">Frecuencia / Horario</th>
+                    <th className="px-4 py-3 font-semibold border-b">Contacto</th>
+                    
+                    {tableView === "desercion" && <th className="px-4 py-3 font-semibold border-b text-center">Gestión CRM</th>}
+                    {tableView === "cambios" && <th className="px-4 py-3 font-semibold border-b bg-amber-50">Frecuencia Anterior</th>}
+                    {(tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") && <th className="px-4 py-3 font-semibold border-b bg-blue-50">Categoría Anterior</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredData.length > 0 ? filteredData.map((s) => {
+                    const crm = crmData[s.id] || {};
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50 transition-colors group">
+                        <td className="px-4 py-3 font-medium text-slate-700">{s.id}</td>
+                        <td className="px-4 py-3 text-slate-800">{s.name}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-slate-700">{s.category || "N/A"}</span>
+                            <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded w-fit">{s.levelNorm || "N/A"}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full w-fit" style={{ backgroundColor: `${FRECUENCIA_COLORS[s.frequencyNorm] || "#94a3b8"}20`, color: FRECUENCIA_COLORS[s.frequencyNorm] || "#94a3b8" }}>
+                              {s.frequencyNorm || "N/A"}
+                            </span>
+                            <span className="text-xs text-slate-600 flex items-center gap-1"><Clock className="h-3 w-3" /> {s.scheduleBlock || "N/A"}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col text-xs text-slate-600 gap-1">
+                            {s.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3 text-slate-400" /> {s.phone}</span>}
+                            {s.email && <span className="flex items-center gap-1 truncate max-w-[200px]"><MessageCircle className="h-3 w-3 text-slate-400" /> {s.email}</span>}
+                            {!s.phone && !s.email && <span className="text-slate-400 italic">Sin datos</span>}
+                          </div>
+                        </td>
+
+                        {tableView === "desercion" && (
+                          <td className="px-4 py-3 text-center align-middle">
+                            <button onClick={() => setCrmModal({ isOpen: true, student: s })} className={`px-3 py-1.5 rounded-full text-xs font-semibold border shadow-sm transition-colors flex items-center gap-2 mx-auto ${getCrmStatusColor(crm.status)} hover:opacity-80`}>
+                              <Edit3 className="h-3 w-3" />
+                              {crm.status || "Pendiente"}
+                            </button>
+                          </td>
+                        )}
+
+                        {tableView === "cambios" && (
+                          <td className="px-4 py-3">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{s.oldFrequency || "N/A"}</span>
+                          </td>
+                        )}
+
+                        {(tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") && (
+                          <td className="px-4 py-3">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{s.oldCategory || "N/A"}</span>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan="8" className="px-4 py-12 text-center text-slate-500 bg-slate-50">
+                        <Filter className="h-8 w-8 mx-auto text-slate-300 mb-2" />
+                        No se encontraron registros con los filtros actuales.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      {/* Modal CRM */}
+      {crmModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2"><Phone className="h-4 w-4 text-blue-600" /> Gestión CRM</h3>
+              <button onClick={() => setCrmModal({ isOpen: false, student: null })} className="text-slate-400 hover:text-slate-600"><XCircle className="h-5 w-5" /></button>
+            </div>
+            
+            <form onSubmit={saveCrmData} className="p-6">
+              <div className="mb-4 pb-4 border-b border-slate-100">
+                <p className="text-sm font-semibold text-slate-800">{crmModal.student.name}</p>
+                <p className="text-xs text-slate-500 mt-1">C.I: {crmModal.student.id} • {crmModal.student.category} • {crmModal.student.levelNorm}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Tel: {crmModal.student.phone || 'N/A'} {crmModal.student.email ? `• Correo: ${crmModal.student.email}` : ''}
+                </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Motivo Principal de Fuga</label>
-                <select name="motive" defaultValue={crmData[crmModal.student.id]?.motive || ""} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500">
-                  <option value="">Seleccione un motivo...</option>
-                  <option value="Económico">Económico / Presupuesto</option>
-                  <option value="Horario Incompatible">Horario Incompatible</option>
-                  <option value="Viaje / Mudanza">Viaje / Mudanza</option>
-                  <option value="Calidad Académica">Descontento Académico</option>
-                  <option value="Salud">Salud / Motivos Personales</option>
-                  <option value="Otro">Otro</option>
-                </select>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Estatus del Contacto</label>
+                  <select name="status" defaultValue={crmData[crmModal.student.id]?.status || "Pendiente"} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="Pendiente">Pendiente por Contactar</option>
+                    <option value="En Gestión">En Gestión (Volver a llamar)</option>
+                    <option value="Rescatado">Rescatado (Reinscrito)</option>
+                    <option value="Pérdida Definitiva">Pérdida Definitiva</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Motivo de Deserción</label>
+                  <select name="motive" defaultValue={crmData[crmModal.student.id]?.motive || ""} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="">Seleccione un motivo...</option>
+                    <option value="Económico">Problemas Económicos</option>
+                    <option value="Horario">Incompatibilidad de Horario</option>
+                    <option value="Viaje/Mudanza">Viaje / Mudanza</option>
+                    <option value="Académico">Dificultad Académica / Desmotivación</option>
+                    <option value="Salud">Problemas de Salud</option>
+                    <option value="No Responde">No contesta llamadas / Mensajes</option>
+                    <option value="Otro">Otro (Especificar en notas)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Notas Adicionales</label>
+                  <textarea name="notes" defaultValue={crmData[crmModal.student.id]?.notes || ""} rows="3" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder="Detalles de la llamada..."></textarea>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Notas del Operador</label>
-                <textarea name="notes" defaultValue={crmData[crmModal.student.id]?.notes || ""} placeholder="Detalles de la llamada..." rows="3" className="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-blue-500 resize-none"></textarea>
-              </div>
-
-              <div className="flex justify-end gap-3 mt-2">
-                <button type="button" onClick={() => setCrmModal({isOpen: false, student: null})} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Guardar Gestión</button>
+              <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end gap-3">
+                <button type="button" onClick={() => setCrmModal({ isOpen: false, student: null })} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"><Save className="h-4 w-4" /> Guardar Gestión</button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
-};
-
-export default DashboardContinuidad;
+}
