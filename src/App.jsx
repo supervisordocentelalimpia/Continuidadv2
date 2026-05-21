@@ -11,7 +11,7 @@ import {
 import {
   Search, Users, Clock, AlertTriangle, Download, CheckCircle, XCircle, Filter, 
   Phone, Upload, RefreshCw, Trash2, MessageCircle, 
-  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap, ArrowRight
+  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap
 } from "lucide-react";
 
 import { parseCevazPdf, __HORARIO_BLOQUES__ } from "./utils/parseCevazPdf";
@@ -155,9 +155,10 @@ const uniqByIdPreferLatest = (arr) => {
   return Array.from(map.values());
 };
 
-export default function DashboardContinuidad() {
+const DashboardContinuidad = () => {
   const [activeTab, setActiveTab] = useState("upload");
-  
+  const fileInputRef = useRef(null);
+
   const [pdfOldFiles, setPdfOldFiles] = useState([]);
   const [pdfNewFiles, setPdfNewFiles] = useState([]);
 
@@ -165,28 +166,22 @@ export default function DashboardContinuidad() {
   const [errorMsg, setErrorMsg] = useState("");
   const [warnMsg, setWarnMsg] = useState("");
 
-  // Listas de datos procesados
   const [oldStudents, setOldStudents] = useState([]);
   const [newStudents, setNewStudents] = useState([]);
   const [dropouts, setDropouts] = useState([]);
-  const [nuevosL1List, setNuevosL1List] = useState([]);
-  const [nivelacionList, setNivelacionList] = useState([]);
+  const [newStudentsList, setNewStudentsList] = useState([]);
   const [freqChangersList, setFreqChangersList] = useState([]);
-  const [graduadosList, setGraduadosList] = useState([]);
-  const [transNinosJovenesList, setTransNinosJovenesList] = useState([]);
-  const [transJovenesAdultosList, setTransJovenesAdultosList] = useState([]);
 
   const [crmData, setCrmData] = useState({});
   const [crmModal, setCrmModal] = useState({ isOpen: false, student: null });
 
-  // Vistas de la tabla
-  const [tableView, setTableView] = useState("desercion"); // desercion | nuevosL1 | nivelacion | cambios | graduados | transNinosJovenes | transJovenesAdultos
-  const [filterFugaType, setFilterFugaType] = useState("All"); 
+  const [tableView, setTableView] = useState("desercion"); // desercion | nuevos | cambios
+  const [filterFugaType, setFilterFugaType] = useState("All"); // All | Nuevos | Regulares
 
   const [stats, setStats] = useState({
     eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0,
     nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, 
-    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosL1: 0, nivelacion: 0, cambiosFreq: 0
+    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0
   });
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -209,13 +204,11 @@ export default function DashboardContinuidad() {
 
   const resetAll = () => {
     setPdfOldFiles([]); setPdfNewFiles([]); setOldStudents([]); setNewStudents([]); setDropouts([]);
-    setNuevosL1List([]); setNivelacionList([]); setFreqChangersList([]); 
-    setGraduadosList([]); setTransNinosJovenesList([]); setTransJovenesAdultosList([]);
-    setCrmData({}); 
+    setNewStudentsList([]); setFreqChangersList([]); setCrmData({}); 
     setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All");
     setSelectedLevel("All"); setSelectedHorario("All"); setLevelChartCategory("All"); setPieMode("horario");
     setTableView("desercion"); setFilterFugaType("All");
-    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosL1: 0, nivelacion: 0, cambiosFreq: 0 });
+    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0 });
     setErrorMsg(""); setWarnMsg(""); setActiveTab("upload");
   };
 
@@ -252,15 +245,15 @@ export default function DashboardContinuidad() {
       const nuevosLost = lost.filter(s => s.levelNorm === "L01").length;
       const regularesLost = lost.length - nuevosLost;
 
-      const transNinosJovenesArr = [];
-      const transJovenesAdultosArr = [];
+      let transNinosJovenes = 0;
+      let transJovenesAdultos = 0;
       const freqChangersArr = [];
 
       reenrolled.forEach(newS => {
         const oldS = oldU.find(o => o.id === newS.id);
         if (oldS) {
-          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNinosJovenesArr.push({...newS, oldCategory: oldS.category});
-          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJovenesAdultosArr.push({...newS, oldCategory: oldS.category});
+          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNinosJovenes++;
+          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJovenesAdultos++;
           if (oldS.frequencyNorm !== newS.frequencyNorm && oldS.frequencyNorm !== "N/A" && newS.frequencyNorm !== "N/A") {
             freqChangersArr.push({...newS, oldFrequency: oldS.frequencyNorm});
           }
@@ -268,8 +261,6 @@ export default function DashboardContinuidad() {
       });
 
       const newStudentsArr = newU.filter(s => !oldIds.has(s.id));
-      const nuevosL1Arr = newStudentsArr.filter(s => s.levelNorm === "L01");
-      const nivelacionArr = newStudentsArr.filter(s => s.levelNorm !== "L01");
 
       const activeCourses = new Set(newU.filter(s => s.courseId).map(s => s.courseId));
       const avgDensity = activeCourses.size > 0 ? (newU.length / activeCourses.size).toFixed(1) : 0;
@@ -281,13 +272,12 @@ export default function DashboardContinuidad() {
       const topHorarioFugas = Object.entries(byHorario).sort((a,b) => b[1]-a[1])[0]?.[0] || "N/A";
 
       setOldStudents(oldU); setNewStudents(newU); setDropouts(lost); setCrmData({});
-      setNuevosL1List(nuevosL1Arr); setNivelacionList(nivelacionArr); setFreqChangersList(freqChangersArr);
-      setGraduadosList(grads); setTransNinosJovenesList(transNinosJovenesArr); setTransJovenesAdultosList(transJovenesAdultosArr);
+      setNewStudentsList(newStudentsArr); setFreqChangersList(freqChangersArr);
       
       setStats({ 
         eligibleOld: eligibleOld.length, reenrolled: reenrolled.length, reenrolledPct, lost: lost.length, lostPct, 
-        nuevosLost, regularesLost, transNinosJovenes: transNinosJovenesArr.length, transJovenesAdultos: transJovenesAdultosArr.length, avgDensity, topHorarioFugas,
-        graduados: grads.length, nuevosL1: nuevosL1Arr.length, nivelacion: nivelacionArr.length, cambiosFreq: freqChangersArr.length
+        nuevosLost, regularesLost, transNinosJovenes, transJovenesAdultos, avgDensity, topHorarioFugas,
+        graduados: grads.length, nuevosIngresos: newStudentsArr.length, cambiosFreq: freqChangersArr.length
       });
 
       resetFilters();
@@ -360,8 +350,6 @@ export default function DashboardContinuidad() {
         return { ...baseRow, "Estatus CRM": crm.status || "Pendiente", Motivo: crm.motive || "", Notas: crm.notes || "" };
       } else if (tableView === "cambios") {
         return { ...baseRow, "Frecuencia Anterior": s.oldFrequency || "N/A" };
-      } else if (tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") {
-        return { ...baseRow, "Categoría Anterior": s.oldCategory || "N/A" };
       } else {
         return baseRow;
       }
@@ -403,7 +391,6 @@ export default function DashboardContinuidad() {
      REPORTES CORPORATIVOS
      ========================= */
   const generatePDFReport = () => {
-    // ... (El reporte PDF se mantiene igual, adaptando las variables nuevas si se desea)
     const docDefinition = {
       pageSize: 'A4',
       pageMargins: [40, 60, 40, 60],
@@ -440,7 +427,7 @@ export default function DashboardContinuidad() {
           ul: [
             { text: `Fuga Estructural: Se registra una pérdida de ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.`, margin: [0, 0, 0, 5] },
             { text: `Horario Crítico: El bloque horario con mayor índice de fuga reportado es "${stats.topHorarioFugas}".`, margin: [0, 0, 0, 5] },
-            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosL1} Ingresos L1, ${stats.nivelacion} Nivelaciones y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
+            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Ingresos por Nivelación y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
             { text: `Gestión de CRM: De ${stats.lost} estudiantes perdidos, se han contactado ${contactedCount} y se han logrado rescatar exitosamente a ${rescuedCount}.` }
           ],
           margin: [0, 0, 0, 20]
@@ -504,11 +491,11 @@ export default function DashboardContinuidad() {
           new Docx.Paragraph({ text: `Fecha de emisión: ${new Date().toLocaleDateString()}`, alignment: Docx.AlignmentType.CENTER }),
           new Docx.Paragraph({ text: " " }),
           new Docx.Paragraph({ text: "1. Resumen General Académico", heading: Docx.HeadingLevel.HEADING_3 }),
-          new Docx.Paragraph({ text: `En el presente análisis de continuity, partiendo de una base de ${stats.eligibleOld} estudiantes regulares, se logró la reinscripción de ${stats.reenrolled} alumnos. Esto representa una Tasa de Retención Institucional del ${stats.reenrolledPct}%. Por otro lado, la tasa de deserción se ubica en el ${stats.lostPct}%, con un total de ${stats.lost} estudiantes perdidos.` }),
+          new Docx.Paragraph({ text: `En el presente análisis de continuidad, partiendo de una base de ${stats.eligibleOld} estudiantes regulares, se logró la reinscripción de ${stats.reenrolled} alumnos. Esto representa una Tasa de Retención Institucional del ${stats.reenrolledPct}%. Por otro lado, la tasa de deserción se ubica en el ${stats.lostPct}%, con un total de ${stats.lost} estudiantes perdidos.` }),
           new Docx.Paragraph({ text: " " }),
           new Docx.Paragraph({ text: "2. Indicadores Clave de Rendimiento (KPIs)", heading: Docx.HeadingLevel.HEADING_3 }),
           new Docx.Paragraph({ text: `• Transición Generacional: ${stats.transNinosJovenes + stats.transJovenesAdultos} alumnos promovidos exitosamente entre categorías.` }),
-          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosL1} Ingresos L1, ${stats.nivelacion} Nivelaciones.` }),
+          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Nivelaciones/Nuevos.` }),
           new Docx.Paragraph({ text: `• Densidad Promedio: ${stats.avgDensity} alumnos por salón activo en el periodo actual.` }),
           new Docx.Paragraph({ text: `• Comportamiento de Fuga: Se perdieron ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.` }),
           new Docx.Paragraph({ text: `• Horario Crítico: El bloque con mayor índice de fuga registrado fue "${stats.topHorarioFugas}".` }),
@@ -529,21 +516,8 @@ export default function DashboardContinuidad() {
   /* =========================
      FILTROS Y DATOS DE TABLA
      ========================= */
-  const getActiveArray = () => {
-    switch (tableView) {
-      case "desercion": return dropouts;
-      case "nuevosL1": return nuevosL1List;
-      case "nivelacion": return nivelacionList;
-      case "cambios": return freqChangersList;
-      case "graduados": return graduadosList;
-      case "transNinosJovenes": return transNinosJovenesList;
-      case "transJovenesAdultos": return transJovenesAdultosList;
-      default: return dropouts;
-    }
-  };
-
   const filterOptions = useMemo(() => {
-    const activeArr = getActiveArray();
+    const activeArr = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
     const cats = Array.from(new Set(activeArr.map((s) => s.category).filter(Boolean))).sort();
     const lvls = Array.from(new Set(activeArr.map((s) => s.levelNorm).filter(Boolean))).sort();
     const hrs = Array.from(new Set(activeArr.map((s) => s.scheduleBlock).filter(Boolean)));
@@ -556,11 +530,11 @@ export default function DashboardContinuidad() {
       horarios: ["All", ...known.filter(h => hrs.includes(h)), ...hrs.filter(h => !knownSet.has(h)).sort()],
       frecuencias: ["All", ...FRECUENCIA_ORDER.filter(f => freqs.includes(f)), ...freqs.filter(f => !FRECUENCIA_ORDER.includes(f)).sort()],
     };
-  }, [dropouts, nuevosL1List, nivelacionList, freqChangersList, graduadosList, transNinosJovenesList, transJovenesAdultosList, tableView]);
+  }, [dropouts, newStudentsList, freqChangersList, tableView]);
 
   const filteredData = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const sourceData = getActiveArray();
+    const sourceData = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
 
     return sourceData.filter((s) => {
       const matchesSearch = !q || (s.name || "").toLowerCase().includes(q) || (s.id || "").includes(q) || (s.email || "").toLowerCase().includes(q) || (s.phone || "").includes(q);
@@ -577,7 +551,7 @@ export default function DashboardContinuidad() {
 
       return matchesSearch && matchesCategory && matchesFrecuencia && matchesLevel && matchesHorario && matchesFugaType;
     });
-  }, [dropouts, nuevosL1List, nivelacionList, freqChangersList, graduadosList, transNinosJovenesList, transJovenesAdultosList, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
+  }, [dropouts, newStudentsList, freqChangersList, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
 
   const barSource = useMemo(() => levelChartCategory === "All" ? dropouts : dropouts.filter((s) => s.category === levelChartCategory), [dropouts, levelChartCategory]);
 
@@ -593,6 +567,7 @@ export default function DashboardContinuidad() {
     }, {});
     return Object.keys(byKey).map((k) => ({ name: k, value: byKey[k] })).sort((a, b) => b.value - a.value);
   }, [dropouts, pieMode]);
+
 
   if (activeTab === "upload") {
     return (
@@ -662,12 +637,368 @@ export default function DashboardContinuidad() {
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={processPdfs} disabled={loading} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
-            {loading ? "Procesando..." : "Analizar Continuidad"}
+        <div className="mt-6 flex flex-col sm:flex-row gap-3">
+          <button onClick={processPdfs} disabled={loading} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-6 py-3 rounded-xl font-bold shadow flex items-center gap-2">
+            <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
+            {loading ? "Procesando..." : "Procesar y Comparar"}
           </button>
         </div>
       </div>
     );
   }
-}
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800 relative print:bg-white print:p-0" id="dashboard-content">
+      
+      <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2">
+            <Users className="h-8 w-8 text-blue-600" /> Dashboard de Continuidad
+          </h1>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setActiveTab("upload")} className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-lg shadow-sm text-xs font-medium">
+            <Upload className="h-4 w-4" /> PDFs
+          </button>
+          
+          <input type="file" accept=".xlsx, .xls" ref={fileInputRef} className="hidden" onChange={importExcel} />
+          <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg shadow-sm text-xs font-medium">
+            <FileUp className="h-4 w-4" /> Importar BD
+          </button>
+
+          <button onClick={exportExcel} disabled={!dropouts.length} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+            <Save className="h-4 w-4" /> Excel
+          </button>
+          <button onClick={generateWordReport} disabled={!dropouts.length} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+            <File className="h-4 w-4" /> Word
+          </button>
+          <button onClick={generatePDFReport} disabled={!dropouts.length} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+            <FileText className="h-4 w-4" /> PDF
+          </button>
+          <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+            <Printer className="h-4 w-4" /> Imprimir
+          </button>
+        </div>
+      </header>
+
+      {/* DASHBOARD INDICATORS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Total Reinscritos</p>
+            <CheckCircle className="h-5 w-5 text-emerald-500 print:hidden" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <h3 className="text-4xl font-black text-emerald-600">{stats.reenrolledPct}%</h3>
+            <p className="text-lg font-bold text-slate-700">({stats.reenrolled})</p>
+          </div>
+          <p className="text-xs text-slate-400 font-medium">De {stats.eligibleOld} regulares</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Total Pérdida</p>
+            <XCircle className="h-5 w-5 text-rose-500 print:hidden" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <h3 className="text-4xl font-black text-rose-600">{stats.lostPct}%</h3>
+            <p className="text-lg font-bold text-slate-700">({stats.lost})</p>
+          </div>
+          <p className="text-xs text-slate-400 font-medium">De {stats.eligibleOld} regulares</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Fuga: Nuevos vs Regulares</p>
+            <AlertTriangle className="h-5 w-5 text-amber-400 print:hidden" />
+          </div>
+          <div className="mt-2 flex items-end gap-4">
+            <div 
+              className={`cursor-pointer px-2 py-1 rounded transition-colors ${filterFugaType === 'Nuevos' ? 'bg-rose-100 ring-2 ring-rose-400' : 'hover:bg-slate-100'}`} 
+              onClick={() => { setTableView("desercion"); setFilterFugaType(prev => prev === 'Nuevos' ? 'All' : 'Nuevos'); }}
+            >
+              <span className="text-2xl font-black text-rose-600">{stats.nuevosLost}</span>
+              <span className="text-xs font-bold text-slate-500 ml-1">L01</span>
+            </div>
+            <div className="text-slate-300 pb-2">|</div>
+            <div 
+              className={`cursor-pointer px-2 py-1 rounded transition-colors ${filterFugaType === 'Regulares' ? 'bg-slate-200 ring-2 ring-slate-400' : 'hover:bg-slate-100'}`} 
+              onClick={() => { setTableView("desercion"); setFilterFugaType(prev => prev === 'Regulares' ? 'All' : 'Regulares'); }}
+            >
+              <span className="text-2xl font-black text-slate-700">{stats.regularesLost}</span>
+              <span className="text-xs font-bold text-slate-500 ml-1">Regulares</span>
+            </div>
+          </div>
+          {filterFugaType !== "All" && <p className="text-xs text-blue-500 font-semibold mt-1">Filtro activo. Clic para quitar.</p>}
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-b-4 border-b-blue-500 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Tasa Éxito Rescate</p>
+            <Phone className="h-5 w-5 text-blue-500 print:hidden" />
+          </div>
+          <div className="mt-2">
+            <h3 className="text-3xl font-black text-blue-600">{winBackRate}%</h3>
+            <p className="text-xs text-slate-400 font-medium">{rescuedCount} de {contactedCount} contactados</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Horario Crítico de Fugas</p>
+            <Clock className="h-5 w-5 text-amber-500 print:hidden" />
+          </div>
+          <div className="mt-2">
+            <h3 className="text-lg font-black text-slate-800 truncate" title={stats.topHorarioFugas}>{stats.topHorarioFugas}</h3>
+            <p className="text-xs text-slate-400 font-medium">Bloque con mayor deserción</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Densidad Promedio</p>
+            <Users className="h-5 w-5 text-indigo-400 print:hidden" />
+          </div>
+          <div className="mt-2">
+            <h3 className="text-3xl font-black text-slate-800">{stats.avgDensity}</h3>
+            <p className="text-xs text-slate-400 font-medium">Alumnos por salón (Actual)</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Transición Categorías</p>
+            <TrendingUp className="h-5 w-5 text-emerald-400 print:hidden" />
+          </div>
+          <div className="mt-2">
+            <div className="flex justify-between items-center bg-emerald-50 px-2 py-1 rounded mb-1">
+              <span className="text-xs font-bold text-emerald-700">Niños ➔ Jóvenes</span>
+              <span className="text-lg font-black text-emerald-600">{stats.transNinosJovenes}</span>
+            </div>
+            <div className="flex justify-between items-center bg-blue-50 px-2 py-1 rounded">
+              <span className="text-xs font-bold text-blue-700">Jóvenes ➔ Adultos</span>
+              <span className="text-lg font-black text-blue-600">{stats.transJovenesAdultos}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
+          <div className="flex justify-between items-start">
+            <p className="text-sm font-semibold text-slate-500">Movimientos Externos</p>
+            <GraduationCap className="h-5 w-5 text-indigo-400 print:hidden" />
+          </div>
+          <div className="mt-2">
+            <p className="text-xs font-bold text-slate-600">🎓 Graduados: <span className="text-lg font-black text-indigo-600 ml-1">{stats.graduados}</span></p>
+            <p className="text-xs font-bold text-slate-600 mt-1">🌟 Nuevos Ingresos: <span className="text-lg font-black text-emerald-600 ml-1">{stats.nuevosIngresos}</span></p>
+            <p className="text-xs font-bold text-slate-600 mt-1">🔄 Cambios Frecuencia: <span className="text-lg font-black text-amber-600 ml-1">{stats.cambiosFreq}</span></p>
+          </div>
+        </div>
+
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 print:break-inside-avoid">
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+            <h3 className="text-lg font-bold text-slate-800">Volumen de Deserción por Nivel</h3>
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg print:hidden">
+              {["All", "Niños", "Jóvenes", "Adultos"].map(cat => (
+                <button 
+                  key={cat} 
+                  onClick={() => setLevelChartCategory(cat)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${levelChartCategory === cat ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  {cat === "All" ? "Todos" : cat}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartDataLevel} onClick={(e) => {if(e?.activeLabel) setSelectedLevel(e.activeLabel)}}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                <YAxis />
+                <RechartsTooltip cursor={{ fill: "#f1f5f9" }} />
+                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Estudiantes" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-slate-800">Fuga por {pieMode === "horario" ? "Horario" : "Frecuencia"}</h3>
+            <button onClick={() => setPieMode(prev => prev === "horario" ? "frecuencia" : "horario")} className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded print:hidden">
+              {pieMode === "horario" ? "Ver por Frecuencia" : "Ver por Horario"}
+            </button>
+          </div>
+          <div className="h-64 w-full cursor-pointer">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={chartDataPie} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value" onClick={onClickPie}>
+                  {chartDataPie.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={pieMode === "frecuencia" ? (FRECUENCIA_COLORS[entry.name] || "#94a3b8") : HORARIO_COLORS[index % HORARIO_COLORS.length]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* DYNAMIC TABLE VIEW */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:break-before-page">
+        <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-4 items-center justify-between print:hidden">
+          <div className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-slate-400"/>
+            <h3 className="text-lg font-bold text-slate-800">
+              {tableView === "desercion" ? "Lista de Gestión (CRM)" : tableView === "nuevos" ? "Nuevos Ingresos / Nivelación" : "Cambios de Frecuencia"}
+            </h3>
+            <select 
+              value={tableView} 
+              onChange={(e) => { setTableView(e.target.value); resetFilters(); }} 
+              className="bg-slate-100 border border-slate-200 text-slate-700 text-xs py-1 px-2 rounded outline-none font-bold ml-2 cursor-pointer"
+            >
+              <option value="desercion">Ver: Deserciones (CRM)</option>
+              <option value="nuevos">Ver: Nuevos Ingresos</option>
+              <option value="cambios">Ver: Cambios de Frec.</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-3 w-full lg:w-auto">
+            <div className="relative flex-1 lg:w-64">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input type="text" placeholder="Buscar alumno..." className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg w-full text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            </div>
+            <button onClick={resetFilters} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-slate-200">
+              <Filter className="h-4 w-4"/> Limpiar
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse whitespace-nowrap print:text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-semibold print:bg-gray-100 print:text-gray-800">
+                {tableView === "desercion" && <th className="p-4 border-b border-slate-100">Estatus CRM</th>}
+                <th className="p-4 border-b border-slate-100">Estudiante</th>
+                <th className="p-4 border-b border-slate-100">Cédula</th>
+                <th className="p-4 border-b border-slate-100">Categoría</th>
+                <th className="p-4 border-b border-slate-100">Nivel</th>
+                <th className="p-4 border-b border-slate-100">Frecuencia {tableView === "cambios" ? "Nueva" : ""}</th>
+                {tableView === "cambios" && <th className="p-4 border-b border-slate-100">Frec. Anterior</th>}
+                <th className="p-4 border-b border-slate-100">Horario</th>
+                <th className="p-4 border-b border-slate-100">Email</th>
+                <th className="p-4 border-b border-slate-100 print:hidden">Contacto Directo</th>
+                <th className="p-4 border-b border-slate-100">Teléfono</th>
+                {tableView === "desercion" && <th className="p-4 border-b border-slate-100 text-center print:hidden">Acción CRM</th>}
+              </tr>
+            </thead>
+            <tbody className="text-sm divide-y divide-slate-100">
+              {filteredData.map((s) => {
+                const crm = crmData[s.id] || { status: "Pendiente" };
+                const isManaged = tableView === "desercion" && crm.status !== "Pendiente";
+                const phoneClean = s.phone ? s.phone.replace(/\D/g, "") : "";
+
+                return (
+                  <tr key={s.id} className={`hover:bg-slate-50 ${isManaged ? 'bg-slate-50/50' : ''} print:border-b`}>
+                    {tableView === "desercion" && (
+                      <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold border print:border-none print:px-0 ${getCrmStatusColor(crm.status)}`}>
+                          {crm.status}
+                        </span>
+                      </td>
+                    )}
+                    <td className="p-4 font-bold text-slate-800">{s.name}</td>
+                    <td className="p-4 text-slate-500 font-mono text-xs">{s.id}</td>
+                    <td className="p-4 text-slate-600">{s.category}</td>
+                    <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 print:bg-transparent print:px-0">{s.levelNorm}</span></td>
+                    <td className="p-4 text-slate-600">{s.frequencyNorm}</td>
+                    {tableView === "cambios" && <td className="p-4 text-amber-600 font-medium">{s.oldFrequency}</td>}
+                    <td className="p-4 text-slate-600">{s.scheduleBlock}</td>
+                    <td className="p-4 text-slate-500">{s.email || "N/A"}</td>
+                    <td className="p-4 flex items-center gap-2 print:hidden">
+                      {s.phone ? (
+                        <>
+                          <a href={`https://wa.me/${phoneClean}`} target="_blank" rel="noreferrer" className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors" title="Escribir al WhatsApp">
+                            <MessageCircle className="h-4 w-4" />
+                          </a>
+                          <a href={`tel:${s.phone}`} className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors" title="Llamada Telefónica">
+                            <Phone className="h-4 w-4" />
+                          </a>
+                        </>
+                      ) : <span className="text-xs text-slate-400">N/A</span>}
+                    </td>
+                    <td className="p-4 text-slate-600">{s.phone || "N/A"}</td>
+                    {tableView === "desercion" && (
+                      <td className="p-4 text-center print:hidden">
+                        <button onClick={() => setCrmModal({ isOpen: true, student: s })} className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 mx-auto transition-colors">
+                          <Edit3 className="h-3 w-3"/> Gestionar
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* CRM MODAL */}
+      {crmModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 print:hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-slate-800">Gestionar Alumno</h3>
+                <p className="text-xs text-slate-500">{crmModal.student.name} ({crmModal.student.id})</p>
+              </div>
+              <button onClick={() => setCrmModal({isOpen: false, student: null})} className="text-slate-400 hover:text-slate-600"><XCircle className="h-6 w-6"/></button>
+            </div>
+            
+            <form onSubmit={saveCrmData} className="p-5 flex flex-col gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Estatus del Rescate</label>
+                <select name="status" defaultValue={crmData[crmModal.student.id]?.status || "Pendiente"} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500">
+                  <option value="Pendiente">Pendiente (No contactado)</option>
+                  <option value="En Gestión">En Gestión (Esperando respuesta)</option>
+                  <option value="Rescatado">Rescatado (Se reinscribió)</option>
+                  <option value="Pérdida Definitiva">Pérdida Definitiva</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Motivo Principal de Fuga</label>
+                <select name="motive" defaultValue={crmData[crmModal.student.id]?.motive || ""} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500">
+                  <option value="">Seleccione un motivo...</option>
+                  <option value="Económico">Económico / Presupuesto</option>
+                  <option value="Horario Incompatible">Horario Incompatible</option>
+                  <option value="Viaje / Mudanza">Viaje / Mudanza</option>
+                  <option value="Calidad Académica">Descontento Académico</option>
+                  <option value="Salud">Salud / Motivos Personales</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Notas del Operador</label>
+                <textarea name="notes" defaultValue={crmData[crmModal.student.id]?.notes || ""} placeholder="Detalles de la llamada..." rows="3" className="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-blue-500 resize-none"></textarea>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-2">
+                <button type="button" onClick={() => setCrmModal({isOpen: false, student: null})} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Guardar Gestión</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+export default DashboardContinuidad;
