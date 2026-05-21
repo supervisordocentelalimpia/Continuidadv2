@@ -11,7 +11,7 @@ import {
 import {
   Search, Users, Clock, AlertTriangle, Download, CheckCircle, XCircle, Filter, 
   Phone, Upload, RefreshCw, Trash2, MessageCircle, 
-  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap
+  UserPlus, TrendingUp, Edit3, Save, FileText, Printer, FileUp, File, GraduationCap, Info
 } from "lucide-react";
 
 import { parseCevazPdf, __HORARIO_BLOQUES__ } from "./utils/parseCevazPdf";
@@ -169,19 +169,24 @@ const DashboardContinuidad = () => {
   const [oldStudents, setOldStudents] = useState([]);
   const [newStudents, setNewStudents] = useState([]);
   const [dropouts, setDropouts] = useState([]);
+  
+  // Listas Específicas
   const [newStudentsList, setNewStudentsList] = useState([]);
   const [freqChangersList, setFreqChangersList] = useState([]);
+  const [graduadosList, setGraduadosList] = useState([]);
+  const [transNinosJovenesList, setTransNinosJovenesList] = useState([]);
+  const [transJovenesAdultosList, setTransJovenesAdultosList] = useState([]);
 
   const [crmData, setCrmData] = useState({});
   const [crmModal, setCrmModal] = useState({ isOpen: false, student: null });
 
-  const [tableView, setTableView] = useState("desercion"); // desercion | nuevos | cambios
-  const [filterFugaType, setFilterFugaType] = useState("All"); // All | Nuevos | Regulares
+  const [tableView, setTableView] = useState("desercion"); 
+  const [filterFugaType, setFilterFugaType] = useState("All"); 
 
   const [stats, setStats] = useState({
     eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0,
     nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, 
-    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0
+    avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosL01: 0, nuevosNivelacion: 0, cambiosFreq: 0
   });
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -204,11 +209,11 @@ const DashboardContinuidad = () => {
 
   const resetAll = () => {
     setPdfOldFiles([]); setPdfNewFiles([]); setOldStudents([]); setNewStudents([]); setDropouts([]);
-    setNewStudentsList([]); setFreqChangersList([]); setCrmData({}); 
+    setNewStudentsList([]); setFreqChangersList([]); setGraduadosList([]); setTransNinosJovenesList([]); setTransJovenesAdultosList([]); setCrmData({}); 
     setSearchTerm(""); setSelectedCategory("All"); setSelectedFrecuencia("All");
     setSelectedLevel("All"); setSelectedHorario("All"); setLevelChartCategory("All"); setPieMode("horario");
     setTableView("desercion"); setFilterFugaType("All");
-    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosIngresos: 0, cambiosFreq: 0 });
+    setStats({ eligibleOld: 0, reenrolled: 0, reenrolledPct: 0, lost: 0, lostPct: 0, nuevosLost: 0, regularesLost: 0, transNinosJovenes: 0, transJovenesAdultos: 0, avgDensity: 0, topHorarioFugas: "N/A", graduados: 0, nuevosL01: 0, nuevosNivelacion: 0, cambiosFreq: 0 });
     setErrorMsg(""); setWarnMsg(""); setActiveTab("upload");
   };
 
@@ -245,22 +250,24 @@ const DashboardContinuidad = () => {
       const nuevosLost = lost.filter(s => s.levelNorm === "L01").length;
       const regularesLost = lost.length - nuevosLost;
 
-      let transNinosJovenes = 0;
-      let transJovenesAdultos = 0;
+      const transNJArr = [];
+      const transJAArr = [];
       const freqChangersArr = [];
 
       reenrolled.forEach(newS => {
         const oldS = oldU.find(o => o.id === newS.id);
         if (oldS) {
-          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNinosJovenes++;
-          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJovenesAdultos++;
+          if (oldS.category === "Niños" && (newS.category === "Jóvenes" || newS.category === "JÓVENES")) transNJArr.push({...newS, oldCategory: oldS.category});
+          if ((oldS.category === "Jóvenes" || oldS.category === "JÓVENES") && newS.category === "Adultos") transJAArr.push({...newS, oldCategory: oldS.category});
           if (oldS.frequencyNorm !== newS.frequencyNorm && oldS.frequencyNorm !== "N/A" && newS.frequencyNorm !== "N/A") {
             freqChangersArr.push({...newS, oldFrequency: oldS.frequencyNorm});
           }
         }
       });
 
-      const newStudentsArr = newU.filter(s => !oldIds.has(s.id));
+      const nuevosArr = newU.filter(s => !oldIds.has(s.id));
+      const nuevosL01 = nuevosArr.filter(s => s.levelNorm === "L01");
+      const nuevosNivelacion = nuevosArr.filter(s => s.levelNorm !== "L01");
 
       const activeCourses = new Set(newU.filter(s => s.courseId).map(s => s.courseId));
       const avgDensity = activeCourses.size > 0 ? (newU.length / activeCourses.size).toFixed(1) : 0;
@@ -272,12 +279,13 @@ const DashboardContinuidad = () => {
       const topHorarioFugas = Object.entries(byHorario).sort((a,b) => b[1]-a[1])[0]?.[0] || "N/A";
 
       setOldStudents(oldU); setNewStudents(newU); setDropouts(lost); setCrmData({});
-      setNewStudentsList(newStudentsArr); setFreqChangersList(freqChangersArr);
+      setNewStudentsList(nuevosArr); setFreqChangersList(freqChangersArr);
+      setGraduadosList(grads); setTransNinosJovenesList(transNJArr); setTransJovenesAdultosList(transJAArr);
       
       setStats({ 
         eligibleOld: eligibleOld.length, reenrolled: reenrolled.length, reenrolledPct, lost: lost.length, lostPct, 
-        nuevosLost, regularesLost, transNinosJovenes, transJovenesAdultos, avgDensity, topHorarioFugas,
-        graduados: grads.length, nuevosIngresos: newStudentsArr.length, cambiosFreq: freqChangersArr.length
+        nuevosLost, regularesLost, transNinosJovenes: transNJArr.length, transJovenesAdultos: transJAArr.length, avgDensity, topHorarioFugas,
+        graduados: grads.length, nuevosL01: nuevosL01.length, nuevosNivelacion: nuevosNivelacion.length, cambiosFreq: freqChangersArr.length
       });
 
       resetFilters();
@@ -329,6 +337,70 @@ const DashboardContinuidad = () => {
   };
 
   /* =========================
+     FILTROS Y DATOS DE TABLA
+     ========================= */
+  const sourceData = useMemo(() => {
+    if (tableView === "desercion") return dropouts;
+    if (tableView === "nuevosL01") return newStudentsList.filter(s => s.levelNorm === "L01");
+    if (tableView === "nivelacion") return newStudentsList.filter(s => s.levelNorm !== "L01");
+    if (tableView === "cambios") return freqChangersList;
+    if (tableView === "graduados") return graduadosList;
+    if (tableView === "transNinosJovenes") return transNinosJovenesList;
+    if (tableView === "transJovenesAdultos") return transJovenesAdultosList;
+    return dropouts;
+  }, [tableView, dropouts, newStudentsList, freqChangersList, graduadosList, transNinosJovenesList, transJovenesAdultosList]);
+
+  const filterOptions = useMemo(() => {
+    const cats = Array.from(new Set(sourceData.map((s) => s.category).filter(Boolean))).sort();
+    const lvls = Array.from(new Set(sourceData.map((s) => s.levelNorm).filter(Boolean))).sort();
+    const hrs = Array.from(new Set(sourceData.map((s) => s.scheduleBlock).filter(Boolean)));
+    const freqs = Array.from(new Set(sourceData.map((s) => s.frequencyNorm).filter(Boolean)));
+    const known = __HORARIO_BLOQUES__ || [];
+    const knownSet = new Set(known);
+    return {
+      categories: ["All", ...cats],
+      levels: ["All", ...lvls],
+      horarios: ["All", ...known.filter(h => hrs.includes(h)), ...hrs.filter(h => !knownSet.has(h)).sort()],
+      frecuencias: ["All", ...FRECUENCIA_ORDER.filter(f => freqs.includes(f)), ...freqs.filter(f => !FRECUENCIA_ORDER.includes(f)).sort()],
+    };
+  }, [sourceData]);
+
+  const filteredData = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+
+    return sourceData.filter((s) => {
+      const matchesSearch = !q || (s.name || "").toLowerCase().includes(q) || (s.id || "").includes(q) || (s.email || "").toLowerCase().includes(q) || (s.phone || "").includes(q);
+      const matchesCategory = selectedCategory === "All" || s.category === selectedCategory;
+      const matchesFrecuencia = selectedFrecuencia === "All" || s.frequencyNorm === selectedFrecuencia;
+      const matchesLevel = selectedLevel === "All" || s.levelNorm === selectedLevel;
+      const matchesHorario = selectedHorario === "All" || s.scheduleBlock === selectedHorario;
+      
+      let matchesFugaType = true;
+      if (tableView === "desercion") {
+          if (filterFugaType === "Nuevos" && s.levelNorm !== "L01") matchesFugaType = false;
+          if (filterFugaType === "Regulares" && s.levelNorm === "L01") matchesFugaType = false;
+      }
+
+      return matchesSearch && matchesCategory && matchesFrecuencia && matchesLevel && matchesHorario && matchesFugaType;
+    });
+  }, [sourceData, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
+
+  const barSource = useMemo(() => levelChartCategory === "All" ? dropouts : dropouts.filter((s) => s.category === levelChartCategory), [dropouts, levelChartCategory]);
+
+  const chartDataLevel = useMemo(() => {
+    const byLevel = barSource.reduce((acc, s) => { const k = s.levelNorm || "N/A"; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
+    return Object.keys(byLevel).map((k) => ({ name: k, count: byLevel[k] })).sort((a, b) => (parseInt(a.name.replace(/\D/g, "")) || 0) - (parseInt(b.name.replace(/\D/g, "")) || 0));
+  }, [barSource]);
+
+  const chartDataPie = useMemo(() => {
+    const byKey = dropouts.reduce((acc, s) => {
+      const key = pieMode === "horario" ? (s.scheduleBlock || "N/A") : (s.frequencyNorm || "N/A");
+      acc[key] = (acc[key] || 0) + 1; return acc;
+    }, {});
+    return Object.keys(byKey).map((k) => ({ name: k, value: byKey[k] })).sort((a, b) => b.value - a.value);
+  }, [dropouts, pieMode]);
+
+  /* =========================
      IMPORTAR / EXPORTAR DATOS
      ========================= */
   const exportExcel = () => {
@@ -350,6 +422,8 @@ const DashboardContinuidad = () => {
         return { ...baseRow, "Estatus CRM": crm.status || "Pendiente", Motivo: crm.motive || "", Notas: crm.notes || "" };
       } else if (tableView === "cambios") {
         return { ...baseRow, "Frecuencia Anterior": s.oldFrequency || "N/A" };
+      } else if (tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") {
+        return { ...baseRow, "Categoría Anterior": s.oldCategory || "N/A" };
       } else {
         return baseRow;
       }
@@ -427,7 +501,7 @@ const DashboardContinuidad = () => {
           ul: [
             { text: `Fuga Estructural: Se registra una pérdida de ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.`, margin: [0, 0, 0, 5] },
             { text: `Horario Crítico: El bloque horario con mayor índice de fuga reportado es "${stats.topHorarioFugas}".`, margin: [0, 0, 0, 5] },
-            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Ingresos por Nivelación y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
+            { text: `Nuevos Movimientos: ${stats.graduados} Graduados, ${stats.nuevosL01 + stats.nuevosNivelacion} Ingresos (L01/Nivelación) y ${stats.cambiosFreq} Cambios de Frecuencia.`, margin: [0, 0, 0, 5] },
             { text: `Gestión de CRM: De ${stats.lost} estudiantes perdidos, se han contactado ${contactedCount} y se han logrado rescatar exitosamente a ${rescuedCount}.` }
           ],
           margin: [0, 0, 0, 20]
@@ -495,7 +569,7 @@ const DashboardContinuidad = () => {
           new Docx.Paragraph({ text: " " }),
           new Docx.Paragraph({ text: "2. Indicadores Clave de Rendimiento (KPIs)", heading: Docx.HeadingLevel.HEADING_3 }),
           new Docx.Paragraph({ text: `• Transición Generacional: ${stats.transNinosJovenes + stats.transJovenesAdultos} alumnos promovidos exitosamente entre categorías.` }),
-          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosIngresos} Nivelaciones/Nuevos.` }),
+          new Docx.Paragraph({ text: `• Movimientos: ${stats.graduados} Graduados, ${stats.nuevosL01 + stats.nuevosNivelacion} Nivelaciones/Nuevos.` }),
           new Docx.Paragraph({ text: `• Densidad Promedio: ${stats.avgDensity} alumnos por salón activo en el periodo actual.` }),
           new Docx.Paragraph({ text: `• Comportamiento de Fuga: Se perdieron ${stats.nuevosLost} alumnos de nuevo ingreso (L01) frente a ${stats.regularesLost} alumnos regulares.` }),
           new Docx.Paragraph({ text: `• Horario Crítico: El bloque con mayor índice de fuga registrado fue "${stats.topHorarioFugas}".` }),
@@ -513,62 +587,10 @@ const DashboardContinuidad = () => {
     saveAs(blob, `Dashboard_Continuidad_${new Date().toISOString().slice(0, 10)}.docx`);
   };
 
+
   /* =========================
-     FILTROS Y DATOS DE TABLA
+     RENDER: UPLOAD VIEW
      ========================= */
-  const filterOptions = useMemo(() => {
-    const activeArr = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
-    const cats = Array.from(new Set(activeArr.map((s) => s.category).filter(Boolean))).sort();
-    const lvls = Array.from(new Set(activeArr.map((s) => s.levelNorm).filter(Boolean))).sort();
-    const hrs = Array.from(new Set(activeArr.map((s) => s.scheduleBlock).filter(Boolean)));
-    const freqs = Array.from(new Set(activeArr.map((s) => s.frequencyNorm).filter(Boolean)));
-    const known = __HORARIO_BLOQUES__ || [];
-    const knownSet = new Set(known);
-    return {
-      categories: ["All", ...cats],
-      levels: ["All", ...lvls],
-      horarios: ["All", ...known.filter(h => hrs.includes(h)), ...hrs.filter(h => !knownSet.has(h)).sort()],
-      frecuencias: ["All", ...FRECUENCIA_ORDER.filter(f => freqs.includes(f)), ...freqs.filter(f => !FRECUENCIA_ORDER.includes(f)).sort()],
-    };
-  }, [dropouts, newStudentsList, freqChangersList, tableView]);
-
-  const filteredData = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    const sourceData = tableView === "desercion" ? dropouts : tableView === "nuevos" ? newStudentsList : freqChangersList;
-
-    return sourceData.filter((s) => {
-      const matchesSearch = !q || (s.name || "").toLowerCase().includes(q) || (s.id || "").includes(q) || (s.email || "").toLowerCase().includes(q) || (s.phone || "").includes(q);
-      const matchesCategory = selectedCategory === "All" || s.category === selectedCategory;
-      const matchesFrecuencia = selectedFrecuencia === "All" || s.frequencyNorm === selectedFrecuencia;
-      const matchesLevel = selectedLevel === "All" || s.levelNorm === selectedLevel;
-      const matchesHorario = selectedHorario === "All" || s.scheduleBlock === selectedHorario;
-      
-      let matchesFugaType = true;
-      if (tableView === "desercion") {
-          if (filterFugaType === "Nuevos" && s.levelNorm !== "L01") matchesFugaType = false;
-          if (filterFugaType === "Regulares" && s.levelNorm === "L01") matchesFugaType = false;
-      }
-
-      return matchesSearch && matchesCategory && matchesFrecuencia && matchesLevel && matchesHorario && matchesFugaType;
-    });
-  }, [dropouts, newStudentsList, freqChangersList, tableView, searchTerm, selectedCategory, selectedFrecuencia, selectedLevel, selectedHorario, filterFugaType]);
-
-  const barSource = useMemo(() => levelChartCategory === "All" ? dropouts : dropouts.filter((s) => s.category === levelChartCategory), [dropouts, levelChartCategory]);
-
-  const chartDataLevel = useMemo(() => {
-    const byLevel = barSource.reduce((acc, s) => { const k = s.levelNorm || "N/A"; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
-    return Object.keys(byLevel).map((k) => ({ name: k, count: byLevel[k] })).sort((a, b) => (parseInt(a.name.replace(/\D/g, "")) || 0) - (parseInt(b.name.replace(/\D/g, "")) || 0));
-  }, [barSource]);
-
-  const chartDataPie = useMemo(() => {
-    const byKey = dropouts.reduce((acc, s) => {
-      const key = pieMode === "horario" ? (s.scheduleBlock || "N/A") : (s.frequencyNorm || "N/A");
-      acc[key] = (acc[key] || 0) + 1; return acc;
-    }, {});
-    return Object.keys(byKey).map((k) => ({ name: k, value: byKey[k] })).sort((a, b) => b.value - a.value);
-  }, [dropouts, pieMode]);
-
-
   if (activeTab === "upload") {
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
@@ -647,6 +669,9 @@ const DashboardContinuidad = () => {
     );
   }
 
+  /* =========================
+     RENDER: DASHBOARD
+     ========================= */
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800 relative print:bg-white print:p-0" id="dashboard-content">
       
@@ -666,13 +691,13 @@ const DashboardContinuidad = () => {
             <FileUp className="h-4 w-4" /> Importar BD
           </button>
 
-          <button onClick={exportExcel} disabled={!dropouts.length} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+          <button onClick={exportExcel} disabled={!filteredData.length} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
             <Save className="h-4 w-4" /> Excel
           </button>
-          <button onClick={generateWordReport} disabled={!dropouts.length} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+          <button onClick={generateWordReport} disabled={!filteredData.length} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
             <File className="h-4 w-4" /> Word
           </button>
-          <button onClick={generatePDFReport} disabled={!dropouts.length} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
+          <button onClick={generatePDFReport} disabled={!filteredData.length} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
             <FileText className="h-4 w-4" /> PDF
           </button>
           <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg shadow text-xs font-medium">
@@ -772,11 +797,19 @@ const DashboardContinuidad = () => {
             <TrendingUp className="h-5 w-5 text-emerald-400 print:hidden" />
           </div>
           <div className="mt-2">
-            <div className="flex justify-between items-center bg-emerald-50 px-2 py-1 rounded mb-1">
+            <div 
+              className="flex justify-between items-center bg-emerald-50 px-2 py-1 rounded mb-1 cursor-pointer hover:ring-2 ring-emerald-400 transition-all"
+              onClick={() => { setTableView("transNinosJovenes"); resetFilters(); }}
+              title="Haz clic para ver la lista de estudiantes"
+            >
               <span className="text-xs font-bold text-emerald-700">Niños ➔ Jóvenes</span>
               <span className="text-lg font-black text-emerald-600">{stats.transNinosJovenes}</span>
             </div>
-            <div className="flex justify-between items-center bg-blue-50 px-2 py-1 rounded">
+            <div 
+              className="flex justify-between items-center bg-blue-50 px-2 py-1 rounded cursor-pointer hover:ring-2 ring-blue-400 transition-all"
+              onClick={() => { setTableView("transJovenesAdultos"); resetFilters(); }}
+              title="Haz clic para ver la lista de estudiantes"
+            >
               <span className="text-xs font-bold text-blue-700">Jóvenes ➔ Adultos</span>
               <span className="text-lg font-black text-blue-600">{stats.transJovenesAdultos}</span>
             </div>
@@ -789,9 +822,18 @@ const DashboardContinuidad = () => {
             <GraduationCap className="h-5 w-5 text-indigo-400 print:hidden" />
           </div>
           <div className="mt-2">
-            <p className="text-xs font-bold text-slate-600">🎓 Graduados: <span className="text-lg font-black text-indigo-600 ml-1">{stats.graduados}</span></p>
-            <p className="text-xs font-bold text-slate-600 mt-1">🌟 Nuevos Ingresos: <span className="text-lg font-black text-emerald-600 ml-1">{stats.nuevosIngresos}</span></p>
-            <p className="text-xs font-bold text-slate-600 mt-1">🔄 Cambios Frecuencia: <span className="text-lg font-black text-amber-600 ml-1">{stats.cambiosFreq}</span></p>
+            <p className="text-xs font-bold text-slate-600 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => {setTableView("graduados"); resetFilters();}} title="Ver graduados">
+              🎓 Graduados: <span className="text-lg font-black text-indigo-600 ml-1">{stats.graduados}</span>
+            </p>
+            <p className="text-xs font-bold text-slate-600 mt-1 cursor-pointer hover:text-emerald-600 transition-colors" onClick={() => {setTableView("nuevosL01"); resetFilters();}} title="Ver ingresos L01">
+              🌟 Ingresos Nivel 1 (L01): <span className="text-lg font-black text-emerald-600 ml-1">{stats.nuevosL01}</span>
+            </p>
+            <p className="text-xs font-bold text-slate-600 mt-1 cursor-pointer hover:text-sky-600 transition-colors" onClick={() => {setTableView("nivelacion"); resetFilters();}} title="Ver ingresos por nivelación">
+              🚀 Ingresos Nivelación: <span className="text-lg font-black text-sky-600 ml-1">{stats.nuevosNivelacion}</span>
+            </p>
+            <p className="text-xs font-bold text-slate-600 mt-1 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => {setTableView("cambios"); resetFilters();}} title="Ver cambios de frecuencia">
+              🔄 Cambios Frecuencia: <span className="text-lg font-black text-amber-600 ml-1">{stats.cambiosFreq}</span>
+            </p>
           </div>
         </div>
 
@@ -850,21 +892,29 @@ const DashboardContinuidad = () => {
       </div>
 
       {/* DYNAMIC TABLE VIEW */}
+      {tableView === "nivelacion" && (
+        <div className="bg-amber-50 border border-amber-200 p-4 mb-4 rounded-lg flex gap-3 text-amber-800 text-sm print:hidden shadow-sm">
+          <Info className="h-5 w-5 flex-shrink-0" />
+          <p><strong>Nota Institucional:</strong> Estos estudiantes ingresaron por Nivelación (no son L01 y no estaban en el listado del periodo anterior). El sistema solo detecta diferencias entre los PDFs cargados. <strong>Se recomienda validar su estatus y récord en el SGA</strong> antes de ejecutar cualquier acción.</p>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:break-before-page">
         <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-4 items-center justify-between print:hidden">
           <div className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-slate-400"/>
-            <h3 className="text-lg font-bold text-slate-800">
-              {tableView === "desercion" ? "Lista de Gestión (CRM)" : tableView === "nuevos" ? "Nuevos Ingresos / Nivelación" : "Cambios de Frecuencia"}
-            </h3>
             <select 
               value={tableView} 
               onChange={(e) => { setTableView(e.target.value); resetFilters(); }} 
-              className="bg-slate-100 border border-slate-200 text-slate-700 text-xs py-1 px-2 rounded outline-none font-bold ml-2 cursor-pointer"
+              className="bg-transparent text-lg font-bold text-slate-800 outline-none cursor-pointer border-b-2 border-slate-200 hover:border-blue-500 pb-1"
             >
-              <option value="desercion">Ver: Deserciones (CRM)</option>
-              <option value="nuevos">Ver: Nuevos Ingresos</option>
-              <option value="cambios">Ver: Cambios de Frec.</option>
+              <option value="desercion">Deserciones (CRM de Fugas)</option>
+              <option value="nuevosL01">Ingresos Nivel 1 (L01)</option>
+              <option value="nivelacion">Ingresos por Nivelación</option>
+              <option value="cambios">Cambios de Frecuencia</option>
+              <option value="graduados">Graduados</option>
+              <option value="transNinosJovenes">Transición: Niños ➔ Jóvenes</option>
+              <option value="transJovenesAdultos">Transición: Jóvenes ➔ Adultos</option>
             </select>
           </div>
           <div className="flex items-center gap-3 w-full lg:w-auto">
@@ -886,6 +936,7 @@ const DashboardContinuidad = () => {
                 <th className="p-4 border-b border-slate-100">Estudiante</th>
                 <th className="p-4 border-b border-slate-100">Cédula</th>
                 <th className="p-4 border-b border-slate-100">Categoría</th>
+                {(tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") && <th className="p-4 border-b border-slate-100">Cat. Anterior</th>}
                 <th className="p-4 border-b border-slate-100">Nivel</th>
                 <th className="p-4 border-b border-slate-100">Frecuencia {tableView === "cambios" ? "Nueva" : ""}</th>
                 {tableView === "cambios" && <th className="p-4 border-b border-slate-100">Frec. Anterior</th>}
@@ -914,6 +965,7 @@ const DashboardContinuidad = () => {
                     <td className="p-4 font-bold text-slate-800">{s.name}</td>
                     <td className="p-4 text-slate-500 font-mono text-xs">{s.id}</td>
                     <td className="p-4 text-slate-600">{s.category}</td>
+                    {(tableView === "transNinosJovenes" || tableView === "transJovenesAdultos") && <td className="p-4 text-emerald-600 font-medium">{s.oldCategory}</td>}
                     <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 print:bg-transparent print:px-0">{s.levelNorm}</span></td>
                     <td className="p-4 text-slate-600">{s.frequencyNorm}</td>
                     {tableView === "cambios" && <td className="p-4 text-amber-600 font-medium">{s.oldFrequency}</td>}
