@@ -1,132 +1,50 @@
-// src/utils/continuidad.js
+// src/utils/parseCevazPdf.js
+
+import { extractTextFromPdf } from "./pdfText";
 
 import {
+  detectFrequency,
   FREQUENCIES,
-  normalizeFrequency,
 } from "./frecuencia";
 
+
 /* =========================================================
-   MOTOR DE CONTINUIDAD ACADÉMICA
-   =========================================================
-
-   REGLAS PRINCIPALES
-
-   1. REINSCRITO
-      Estaba en el período anterior, debía continuar
-      y su misma identificación aparece en el período nuevo.
-
-   2. PÉRDIDA
-      Estaba en el período anterior, debía continuar
-      y no aparece en ninguna lista del período nuevo.
-
-   3. GRADUANDO
-      Adultos L20 en el período anterior que NO aparece
-      en el período nuevo.
-
-   4. ADULTO L20 QUE REAPARECE
-      No se cuenta como graduando.
-      Se marca como situación académica para revisión.
-
-   5. INGRESO NIVEL 01
-      Todo estudiante L01 presente en el período nuevo.
-
-   6. ESTUDIANTE NO PRESENTE EN PERÍODO ANTERIOR L02+
-      Aparece en el período nuevo, no aparece en el período
-      anterior y está en L02 o superior.
-
-      Esto NO significa automáticamente "nivelación".
-
-   7. TRANSICIÓN DE CATEGORÍA
-      Niños   -> Jóvenes
-      Niños   -> Adultos
-      Jóvenes -> Adultos
-
-   8. CAMBIO DE FRECUENCIA
-      Se compara la frecuencia normalizada entre ambos
-      períodos.
-
-      Ejemplos:
-
-      SABATINO -> MARTES Y JUEVES
-      LUNES -> SEMI INTENSIVO
-      INTENSIVO -> MIERCOLES Y VIERNES
-
-      INTENSIVO A -> INTENSIVO B NO cuenta como cambio,
-      porque ambos se normalizan como INTENSIVO.
-
+   BLOQUES HORARIOS CONOCIDOS
    ========================================================= */
+
+const HORARIO_BLOQUES = [
+  "8:30 AM - 10:00 AM",
+  "10:30 AM - 12:00 PM",
+  "1:00 PM - 2:30 PM",
+  "2:45 PM - 4:15 PM",
+  "4:30 PM - 6:00 PM",
+  "6:15 PM - 7:45 PM",
+
+  /*
+    Bloques utilizados en algunas frecuencias
+    semanales o sabatinas.
+  */
+
+  "8:00 AM - 10:40 AM",
+  "10:50 AM - 1:30 PM",
+  "2:30 PM - 5:10 PM",
+
+  /*
+    Semi Intensivo / horarios adicionales.
+  */
+
+  "8:30 PM - 10:30 PM",
+];
 
 
 /* =========================================================
-   VERSIÓN DE LAS REGLAS
+   TEXTO
    ========================================================= */
 
-export const CONTINUIDAD_RULES_VERSION =
-  "2026-08-20-v2";
-
-
-/* =========================================================
-   REGLAS TERMINALES CONFIRMADAS
-   ========================================================= */
-
-/*
-  Solo utilizamos reglas institucionales confirmadas.
-
-  Actualmente:
-
-  Adultos L20 = nivel terminal.
-
-  No inventamos niveles terminales para Niños o Jóvenes.
-*/
-
-export const DEFAULT_GRADUATION_RULES =
-  Object.freeze({
-    Adultos: 20,
-  });
-
-
-/* =========================================================
-   UTILIDADES GENERALES
-   ========================================================= */
-
-const toStringSafe = (
-  value
-) => {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return "";
-  }
-
-  return String(value);
-};
-
-
-const cleanSpaces = (
+const stripDiacritics = (
   value = ""
 ) => {
-  return toStringSafe(
-    value
-  )
-    .replace(
-      /\u00A0/g,
-      " "
-    )
-    .replace(
-      /\s+/g,
-      " "
-    )
-    .trim();
-};
-
-
-const removeDiacritics = (
-  value = ""
-) => {
-  return toStringSafe(
-    value
-  )
+  return String(value ?? "")
     .normalize("NFD")
     .replace(
       /[\u0300-\u036f]/g,
@@ -135,13 +53,17 @@ const removeDiacritics = (
 };
 
 
-const comparableText = (
+const normalizeComparableText = (
   value = ""
 ) => {
-  return removeDiacritics(
+  return stripDiacritics(
     value
   )
     .toUpperCase()
+    .replace(
+      /[–—]/g,
+      "-"
+    )
     .replace(
       /\s+/g,
       " "
@@ -150,231 +72,135 @@ const comparableText = (
 };
 
 
-const round1 = (
-  value
-) => {
-  const number =
-    Number(value);
-
-  if (
-    !Number.isFinite(
-      number
-    )
-  ) {
-    return 0;
-  }
-
-  return (
-    Math.round(
-      number * 10
-    ) / 10
-  );
-};
-
-
-const safePercentage = (
-  numerator,
-  denominator
-) => {
-  const num =
-    Number(numerator);
-
-  const den =
-    Number(denominator);
-
-  if (
-    !Number.isFinite(
-      num
-    ) ||
-    !Number.isFinite(
-      den
-    ) ||
-    den <= 0
-  ) {
-    return 0;
-  }
-
-  return round1(
-    (num / den) *
-      100
-  );
-};
-
-
-/* =========================================================
-   IDENTIFICACIÓN
-   ========================================================= */
-
-/*
-  Ejemplos:
-
-  17.738.636-1
-  -> 177386361
-
-  17738636-1
-  -> 177386361
-
-  18284765-1
-  -> 182847651
-
-  18284765-2
-  -> 182847652
-
-  Por tanto:
-
-  -1
-  -2
-  -3
-
-  continúan distinguiendo estudiantes diferentes.
-
-  También:
-
-  V-12345678
-  -> 12345678
-
-  E-12345678
-  -> 12345678
-*/
-
-export function normalizeStudentId(
+const normKey = (
   value = ""
-) {
-  let raw =
-    cleanSpaces(
-      value
-    )
-      .toUpperCase();
-
-  if (!raw) {
-    return "";
-  }
-
-  let compact =
-    raw.replace(
-      /[^A-Z0-9]/g,
+) => {
+  return normalizeComparableText(
+    value
+  )
+    .replace(
+      /\s+/g,
       ""
-    );
-
-  /*
-    V y E se consideran prefijos venezolanos
-    únicamente cuando todo lo demás es numérico.
-  */
-
-  if (
-    /^[VE]\d+$/.test(
-      compact
     )
-  ) {
-    compact =
-      compact.slice(1);
-  }
-
-  return compact;
-}
-
-
-export function isValidStudentId(
-  value = ""
-) {
-  const id =
-    normalizeStudentId(
-      value
+    .replace(
+      /[–—]/g,
+      "-"
     );
-
-  if (!id) {
-    return false;
-  }
-
-  if (
-    id.length < 5 ||
-    id.length > 25
-  ) {
-    return false;
-  }
-
-  return /^[A-Z0-9]+$/.test(
-    id
-  );
-}
+};
 
 
 /* =========================================================
-   NOMBRE
+   NIVEL
    ========================================================= */
 
-export function normalizeStudentName(
-  value = ""
-) {
-  return cleanSpaces(
-    value
-  );
-}
+export const normalizePdfLevel = (
+  raw = ""
+) => {
+  const value =
+    normalizeComparableText(
+      raw
+    );
 
+  const match =
+    value.match(
+      /(?:LEVEL|NIVEL|L)?\s*0*(\d{1,2})\b/i
+    );
 
-export function studentNameKey(
-  value = ""
-) {
-  return comparableText(
-    value
-  ).replace(
-    /[^A-Z0-9]/g,
-    ""
-  );
-}
+  if (!match) {
+    return "N/A";
+  }
+
+  const level =
+    parseInt(
+      match[1],
+      10
+    );
+
+  if (
+    !Number.isFinite(
+      level
+    ) ||
+    level <= 0
+  ) {
+    return "N/A";
+  }
+
+  return `L${String(
+    level
+  ).padStart(
+    2,
+    "0"
+  )}`;
+};
 
 
 /* =========================================================
    CATEGORÍA
    ========================================================= */
 
-export function normalizeCategory(
-  value = ""
-) {
+export const normalizePdfCategory = (
+  raw = ""
+) => {
   const original =
-    cleanSpaces(
-      value
+    String(
+      raw ?? ""
     );
 
-  if (!original) {
-    return "N/A";
-  }
-
-  const normalized =
-    comparableText(
+  const value =
+    normalizeComparableText(
       original
     );
 
+  const compact =
+    value.replace(
+      /[^A-Z]/g,
+      ""
+    );
+
+
+  /* -------------------------------------------------------
+     ADULTOS
+     ------------------------------------------------------- */
+
   if (
-    normalized.includes(
-      "ADULTO"
+    /\bADULT(?:O|OS)?\b/.test(
+      value
+    ) ||
+    compact.includes(
+      "ADULT"
     )
   ) {
     return "Adultos";
   }
 
+
+  /* -------------------------------------------------------
+     JÓVENES
+     ------------------------------------------------------- */
+
   if (
-    normalized.includes(
+    /\bJOVEN(?:ES)?\b/.test(
+      value
+    ) ||
+    compact.includes(
       "JOVEN"
     )
   ) {
     return "Jóvenes";
   }
 
-  /*
-    Tolera:
 
-    NIÑOS
-    NINOS
-    NI?OS
-    NIï¿½OS
-  */
+  /* -------------------------------------------------------
+     NIÑOS
 
-  const compact =
-    normalized.replace(
-      /[^A-Z]/g,
-      ""
-    );
+     Tolera:
+
+     NIÑOS
+     NINOS
+     NI?OS
+     NIï¿½OS
+     otras corrupciones de la Ñ
+     ------------------------------------------------------- */
 
   if (
     compact.includes(
@@ -383,1698 +209,785 @@ export function normalizeCategory(
     compact.includes(
       "NIOS"
     ) ||
-    /\bNI.?OS\b/i.test(
+    /NI.?OS/i.test(
       original
     )
   ) {
     return "Niños";
   }
 
-  return original;
-}
+
+  return "N/A";
+};
 
 
 /* =========================================================
-   NIVEL
+   HORARIOS
    ========================================================= */
 
-export function normalizeLevel(
-  value = ""
-) {
-  const raw =
-    cleanSpaces(
-      value
+const toMinutes = (
+  hour,
+  minute,
+  meridiem
+) => {
+  let h =
+    Number(
+      hour
     );
 
-  if (!raw) {
-    return "N/A";
+  const m =
+    Number(
+      minute
+    );
+
+  const mer =
+    String(
+      meridiem || ""
+    ).toUpperCase();
+
+
+  if (
+    !Number.isFinite(
+      h
+    ) ||
+    !Number.isFinite(
+      m
+    ) ||
+    ![
+      "AM",
+      "PM",
+    ].includes(
+      mer
+    )
+  ) {
+    return null;
   }
+
+
+  if (
+    h < 1 ||
+    h > 12 ||
+    m < 0 ||
+    m > 59
+  ) {
+    return null;
+  }
+
+
+  if (
+    h === 12
+  ) {
+    h = 0;
+  }
+
+
+  if (
+    mer === "PM"
+  ) {
+    h += 12;
+  }
+
+
+  return (
+    h * 60 +
+    m
+  );
+};
+
+
+const calculateDurationMinutes = ({
+  startHour,
+  startMinute,
+  startMeridiem,
+
+  endHour,
+  endMinute,
+  endMeridiem,
+}) => {
+  const start =
+    toMinutes(
+      startHour,
+      startMinute,
+      startMeridiem
+    );
+
+  const end =
+    toMinutes(
+      endHour,
+      endMinute,
+      endMeridiem
+    );
+
+
+  if (
+    start === null ||
+    end === null
+  ) {
+    return null;
+  }
+
+
+  let duration =
+    end - start;
+
+
+  /*
+    Se permite técnicamente cruzar medianoche,
+    aunque después se controla la duración máxima.
+  */
+
+  if (
+    duration <= 0
+  ) {
+    duration +=
+      24 * 60;
+  }
+
+
+  return duration;
+};
+
+
+/* =========================================================
+   INFERENCIA DE AM / PM
+   ========================================================= */
+
+/*
+  Los PDFs suelen escribir:
+
+  8:30 A 10:00AM
+  1:00 A 2:30PM
+  4:30 A 6:00PM
+
+  Probamos AM y PM para la hora inicial.
+
+  Solo aceptamos una inferencia cuando una única opción
+  produce una duración académicamente razonable.
+
+  Rango considerado razonable:
+  30 minutos a 6 horas.
+*/
+
+const inferMissingStartMeridiem = ({
+  startHour,
+  startMinute,
+
+  endHour,
+  endMinute,
+
+  endMeridiem,
+}) => {
+  const candidates =
+    [
+      "AM",
+      "PM",
+    ].map(
+      (
+        meridiem
+      ) => {
+        const duration =
+          calculateDurationMinutes({
+            startHour,
+            startMinute,
+            startMeridiem:
+              meridiem,
+
+            endHour,
+            endMinute,
+            endMeridiem,
+          });
+
+
+        return {
+          meridiem,
+
+          duration,
+
+          plausible:
+            Number.isFinite(
+              duration
+            ) &&
+            duration >= 30 &&
+            duration <= 360,
+        };
+      }
+    );
+
+
+  const plausible =
+    candidates.filter(
+      (
+        candidate
+      ) =>
+        candidate.plausible
+    );
+
+
+  if (
+    plausible.length ===
+    1
+  ) {
+    return {
+      meridiem:
+        plausible[0]
+          .meridiem,
+
+      duration:
+        plausible[0]
+          .duration,
+
+      inferred:
+        true,
+
+      ambiguous:
+        false,
+    };
+  }
+
+
+  return {
+    meridiem:
+      "",
+
+    duration:
+      null,
+
+    inferred:
+      false,
+
+    ambiguous:
+      true,
+  };
+};
+
+
+/* =========================================================
+   NORMALIZACIÓN DETALLADA DEL HORARIO
+   ========================================================= */
+
+export const normalizePdfScheduleDetailed = (
+  raw = ""
+) => {
+  const original =
+    String(
+      raw ?? ""
+    ).trim();
+
+
+  if (!original) {
+    return {
+      raw:
+        "",
+
+      block:
+        "N/A",
+
+      valid:
+        false,
+
+      needsReview:
+        true,
+
+      reason:
+        "missing_schedule",
+
+      startMeridiemInferred:
+        false,
+
+      durationMinutes:
+        null,
+    };
+  }
+
+
+  /*
+    Ejemplo:
+
+    TUESDAY & THURSDAY / 8:30 A 10:00AM
+
+    Tomamos la parte ubicada después de "/".
+  */
+
+  const timePart =
+    original.includes(
+      "/"
+    )
+      ? original
+          .split("/")
+          .slice(1)
+          .join("/")
+          .trim()
+      : original;
+
+
+  const cleaned =
+    timePart
+      .replace(
+        /\([^)]*\)/g,
+        " "
+      )
+      .replace(
+        /[–—]/g,
+        "-"
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
+      .trim();
+
+
+  /*
+    Formatos soportados:
+
+    8:30 A 10:00AM
+    8:30 AM A 10:00 AM
+    1:00 A 2:30PM
+    10:50 AM A 1:30 PM
+    8:30 - 10:00 AM
+    8:30 TO 10:00 AM
+  */
 
   const match =
-    raw.match(
-      /(\d{1,2})/
+    cleaned.match(
+      /(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)?\s*(?:A|TO|-)\s*(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)?/i
     );
 
+
   if (!match) {
-    return "N/A";
+    const exact =
+      HORARIO_BLOQUES.find(
+        (
+          block
+        ) =>
+          normKey(
+            block
+          ) ===
+          normKey(
+            cleaned
+          )
+      );
+
+
+    if (exact) {
+      return {
+        raw:
+          original,
+
+        block:
+          exact,
+
+        valid:
+          true,
+
+        needsReview:
+          false,
+
+        reason:
+          "",
+
+        startMeridiemInferred:
+          false,
+
+        durationMinutes:
+          null,
+      };
+    }
+
+
+    return {
+      raw:
+        original,
+
+      block:
+        cleaned ||
+        original ||
+        "N/A",
+
+      valid:
+        false,
+
+      needsReview:
+        true,
+
+      reason:
+        "unrecognized_schedule_format",
+
+      startMeridiemInferred:
+        false,
+
+      durationMinutes:
+        null,
+    };
   }
 
-  const number =
+
+  const startHour =
     parseInt(
       match[1],
       10
     );
 
-  if (
-    !Number.isFinite(
-      number
-    ) ||
-    number <= 0
-  ) {
-    return "N/A";
-  }
-
-  return `L${String(
-    number
-  ).padStart(
-    2,
-    "0"
-  )}`;
-}
-
-
-export function getLevelNumber(
-  studentOrLevel
-) {
-  const raw =
-    typeof studentOrLevel ===
-    "object"
-      ? (
-          studentOrLevel
-            ?.levelNorm ??
-          studentOrLevel
-            ?.level ??
-          ""
-        )
-      : studentOrLevel;
-
-  const normalized =
-    normalizeLevel(
-      raw
-    );
-
-  if (
-    normalized ===
-    "N/A"
-  ) {
-    return 0;
-  }
-
-  const number =
+  const startMinute =
     parseInt(
-      normalized.replace(
-        /\D/g,
-        ""
-      ),
+      match[2],
       10
     );
 
-  return Number.isFinite(
-    number
-  )
-    ? number
-    : 0;
-}
-
-
-/* =========================================================
-   HORARIO
-   ========================================================= */
-
-export function normalizeScheduleBlock(
-  value = ""
-) {
-  const cleaned =
-    cleanSpaces(
-      value
-    );
-
-  return (
-    cleaned ||
-    "N/A"
-  );
-}
-
-
-/* =========================================================
-   FRECUENCIA
-   ========================================================= */
-
-/*
-  Compatibilidad con el código anterior.
-
-  Antes se utilizaba el concepto frequencyFamily.
-
-  Ahora ya no hablamos de "familia".
-
-  La función simplemente devuelve la frecuencia institucional
-  normalizada.
-*/
-
-export function normalizeFrequencyFamily(
-  value = ""
-) {
-  return normalizeFrequency(
-    value
-  );
-}
-
-
-/* =========================================================
-   PREPARACIÓN DEL ESTUDIANTE
-   ========================================================= */
-
-export function prepareStudent(
-  student = {}
-) {
-  const originalId =
-    cleanSpaces(
-      student.idOriginal ??
-      student.id ??
+  let startMeridiem =
+    String(
+      match[3] ||
       ""
+    ).toUpperCase();
+
+
+  const endHour =
+    parseInt(
+      match[4],
+      10
     );
 
-  const idNorm =
-    normalizeStudentId(
-      student.idNorm ||
-      originalId
+  const endMinute =
+    parseInt(
+      match[5],
+      10
     );
 
-  const category =
-    normalizeCategory(
-      student.category
-    );
+  const endMeridiem =
+    String(
+      match[6] ||
+      ""
+    ).toUpperCase();
 
-  const levelNorm =
-    normalizeLevel(
-      student.levelNorm ||
-      student.level
-    );
 
   /*
-    Intentamos obtener la frecuencia desde distintas
-    propiedades para mantener compatibilidad con versiones
-    anteriores del parser y App.jsx.
+    Si el PDF ni siquiera especifica AM/PM
+    al final, no inventamos el horario.
   */
 
-  const frequencyCandidate =
-    student.frequencyNorm ||
-    student.frequency ||
-    student.frequencyBase ||
-    student.frequencyRaw ||
-    student.schedule ||
-    "";
+  if (
+    !endMeridiem
+  ) {
+    return {
+      raw:
+        original,
 
-  const frequencyNorm =
-    normalizeFrequency(
-      frequencyCandidate
-    );
+      block:
+        cleaned,
 
-  const scheduleBlock =
-    normalizeScheduleBlock(
-      student.scheduleBlock
-    );
+      valid:
+        false,
 
-  return {
-    ...student,
+      needsReview:
+        true,
 
-    id:
-      originalId ||
-      cleanSpaces(
-        student.id
-      ),
+      reason:
+        "missing_end_meridiem",
 
-    idOriginal:
-      originalId,
+      startMeridiemInferred:
+        false,
 
-    idNorm,
-
-    name:
-      normalizeStudentName(
-        student.name
-      ),
-
-    category,
-
-    levelNorm,
-
-    /*
-      frequencyNorm es SIEMPRE la frecuencia institucional
-      normalizada.
-
-      Ya no utilizamos etiquetas como INTENSIVO A o B
-      para comparar estudiantes.
-    */
-
-    frequencyNorm,
-
-    /*
-      Se conserva por compatibilidad temporal con partes
-      antiguas del dashboard.
-    */
-
-    frequencyBase:
-      frequencyNorm,
-
-    scheduleBlock,
-  };
-}
-
-
-/* =========================================================
-   NIVEL TERMINAL
-   ========================================================= */
-
-export function isTerminalLevelStudent(
-  student,
-  graduationRules =
-    DEFAULT_GRADUATION_RULES
-) {
-  if (!student) {
-    return false;
+      durationMinutes:
+        null,
+    };
   }
 
-  const prepared =
-    prepareStudent(
-      student
-    );
 
-  const terminalLevel =
-    graduationRules?.[
-      prepared.category
-    ];
+  let startWasInferred =
+    false;
+
+
+  if (
+    !startMeridiem
+  ) {
+    const inference =
+      inferMissingStartMeridiem({
+        startHour,
+        startMinute,
+
+        endHour,
+        endMinute,
+
+        endMeridiem,
+      });
+
+
+    if (
+      inference.ambiguous ||
+      !inference.meridiem
+    ) {
+      return {
+        raw:
+          original,
+
+        block:
+          cleaned,
+
+        valid:
+          false,
+
+        needsReview:
+          true,
+
+        reason:
+          "ambiguous_start_meridiem",
+
+        startMeridiemInferred:
+          false,
+
+        durationMinutes:
+          null,
+      };
+    }
+
+
+    startMeridiem =
+      inference.meridiem;
+
+    startWasInferred =
+      true;
+  }
+
+
+  const duration =
+    calculateDurationMinutes({
+      startHour,
+      startMinute,
+      startMeridiem,
+
+      endHour,
+      endMinute,
+      endMeridiem,
+    });
+
 
   if (
     !Number.isFinite(
-      Number(
-        terminalLevel
-      )
-    )
+      duration
+    ) ||
+    duration < 30 ||
+    duration > 360
   ) {
-    return false;
+    return {
+      raw:
+        original,
+
+      block:
+        cleaned,
+
+      valid:
+        false,
+
+      needsReview:
+        true,
+
+      reason:
+        "implausible_schedule_duration",
+
+      startMeridiemInferred:
+        startWasInferred,
+
+      durationMinutes:
+        duration,
+    };
   }
 
-  return (
-    getLevelNumber(
-      prepared
-    ) ===
-    Number(
-      terminalLevel
-    )
-  );
-}
+
+  const candidate =
+    `${startHour}:${String(
+      startMinute
+    ).padStart(
+      2,
+      "0"
+    )} ${startMeridiem} - ${endHour}:${String(
+      endMinute
+    ).padStart(
+      2,
+      "0"
+    )} ${endMeridiem}`;
 
 
-/*
-  Compatibilidad con pruebas/código anterior.
-
-  IMPORTANTE:
-
-  Esta función responde solamente:
-
-  "¿Está académicamente en el nivel terminal?"
-
-  La clasificación definitiva como GRADUANDO necesita además
-  comprobar que NO aparezca en el período nuevo.
-
-  Esa validación se realiza dentro de analyzeContinuity().
-*/
-
-export function isGraduated(
-  student,
-  graduationRules =
-    DEFAULT_GRADUATION_RULES
-) {
-  return isTerminalLevelStudent(
-    student,
-    graduationRules
-  );
-}
-
-
-/* =========================================================
-   CONTROL DE CALIDAD POR IDENTIDAD
-   ========================================================= */
-
-const academicSignature = (
-  student
-) => {
-  const prepared =
-    prepareStudent(
-      student
+  const mapped =
+    HORARIO_BLOQUES.find(
+      (
+        block
+      ) =>
+        normKey(
+          block
+        ) ===
+        normKey(
+          candidate
+        )
     );
 
-  return [
-    prepared.category,
-    prepared.levelNorm,
-    prepared.frequencyNorm,
-    prepared.scheduleBlock,
-  ].join("|");
+
+  return {
+    raw:
+      original,
+
+    block:
+      mapped ||
+      candidate,
+
+    valid:
+      true,
+
+    needsReview:
+      false,
+
+    reason:
+      "",
+
+    startMeridiemInferred:
+      startWasInferred,
+
+    durationMinutes:
+      duration,
+  };
 };
 
 
-export function inspectIdentityQuality(
-  students = []
-) {
-  const grouped =
-    new Map();
-
-  const missingIds = [];
-
-  const missingNames = [];
-
-  const missingLevels = [];
-
-  const missingCategories = [];
-
-  const unknownFrequencies =
-    [];
-
-  const schedulesToReview =
-    [];
-
-  const frequencyCorrections =
-    [];
-
-  students.forEach(
-    (
-      student,
-      index
-    ) => {
-      const prepared =
-        prepareStudent(
-          student
-        );
-
-      if (
-        !prepared.idNorm
-      ) {
-        missingIds.push({
-          index,
-
-          student:
-            prepared,
-        });
-
-        return;
-      }
-
-      if (
-        !prepared.name
-      ) {
-        missingNames.push({
-          index,
-
-          student:
-            prepared,
-        });
-      }
-
-      if (
-        !prepared.levelNorm ||
-        prepared.levelNorm ===
-          "N/A"
-      ) {
-        missingLevels.push({
-          index,
-
-          student:
-            prepared,
-        });
-      }
-
-      if (
-        !prepared.category ||
-        prepared.category ===
-          "N/A"
-      ) {
-        missingCategories.push({
-          index,
-
-          student:
-            prepared,
-        });
-      }
-
-      if (
-        !prepared.frequencyNorm ||
-        prepared.frequencyNorm ===
-          FREQUENCIES.NA
-      ) {
-        unknownFrequencies.push({
-          index,
-
-          student:
-            prepared,
-        });
-      }
-
-      if (
-        prepared
-          .scheduleNeedsReview
-      ) {
-        schedulesToReview.push({
-          index,
-
-          student:
-            prepared,
-        });
-      }
-
-      if (
-        Array.isArray(
-          prepared
-            .frequencyCorrections
-        ) &&
-        prepared
-          .frequencyCorrections
-          .length
-      ) {
-        frequencyCorrections.push({
-          index,
-
-          student:
-            prepared,
-
-          corrections:
-            prepared
-              .frequencyCorrections,
-        });
-      }
-
-      if (
-        !grouped.has(
-          prepared.idNorm
-        )
-      ) {
-        grouped.set(
-          prepared.idNorm,
-          []
-        );
-      }
-
-      grouped
-        .get(
-          prepared.idNorm
-        )
-        .push({
-          index,
-
-          student:
-            prepared,
-        });
-    }
-  );
-
-  const duplicates = [];
-
-  const nameConflicts = [];
-
-  const academicConflicts =
-    [];
-
-  for (
-    const [
-      idNorm,
-      entries,
-    ]
-    of grouped.entries()
-  ) {
-    if (
-      entries.length <= 1
-    ) {
-      continue;
-    }
-
-    duplicates.push({
-      idNorm,
-
-      count:
-        entries.length,
-
-      students:
-        entries.map(
-          (entry) =>
-            entry.student
-        ),
-    });
-
-    const names =
-      new Set(
-        entries
-          .map(
-            (entry) =>
-              studentNameKey(
-                entry.student.name
-              )
-          )
-          .filter(Boolean)
-      );
-
-    if (
-      names.size > 1
-    ) {
-      nameConflicts.push({
-        idNorm,
-
-        students:
-          entries.map(
-            (entry) =>
-              entry.student
-          ),
-      });
-    }
-
-    const signatures =
-      new Set(
-        entries.map(
-          (entry) =>
-            academicSignature(
-              entry.student
-            )
-        )
-      );
-
-    if (
-      signatures.size > 1
-    ) {
-      academicConflicts.push({
-        idNorm,
-
-        students:
-          entries.map(
-            (entry) =>
-              entry.student
-          ),
-      });
-    }
-  }
-
-  return {
-    missingIds,
-
-    missingNames,
-
-    missingLevels,
-
-    missingCategories,
-
-    unknownFrequencies,
-
-    schedulesToReview,
-
-    frequencyCorrections,
-
-    duplicates,
-
-    nameConflicts,
-
-    academicConflicts,
-  };
-}
+export const normalizePdfSchedule = (
+  raw = ""
+) => {
+  return normalizePdfScheduleDetailed(
+    raw
+  ).block;
+};
 
 
 /* =========================================================
-   DEDUPLICACIÓN
+   METADATOS DE SECCIÓN
    ========================================================= */
 
-export function dedupeStudentsById(
-  students = []
-) {
-  const map =
-    new Map();
+const createEmptyMeta = () => ({
+  periodRaw:
+    "",
 
-  for (
-    let index = 0;
-    index <
-    students.length;
-    index++
-  ) {
-    const prepared =
-      prepareStudent(
-        students[index]
-      );
+  categoryRaw:
+    "",
 
-    if (
-      !prepared.idNorm
-    ) {
-      continue;
-    }
+  category:
+    "N/A",
 
-    const previous =
-      map.get(
-        prepared.idNorm
-      );
+  levelRaw:
+    "",
 
-    if (!previous) {
-      map.set(
-        prepared.idNorm,
-        {
-          student:
-            prepared,
+  levelNorm:
+    "N/A",
 
-          inputIndex:
-            index,
-        }
-      );
+  scheduleRaw:
+    "",
 
-      continue;
-    }
+  scheduleBlock:
+    "N/A",
 
-    /*
-      Si los archivos contienen __fileRank, conservamos
-      la versión procedente del archivo posterior.
+  scheduleValid:
+    false,
 
-      Si no, conservamos el último registro recibido.
-    */
+  scheduleNeedsReview:
+    false,
 
-    const previousRank =
-      Number.isFinite(
-        Number(
-          previous
-            .student
-            .__fileRank
-        )
-      )
-        ? Number(
-            previous
-              .student
-              .__fileRank
-          )
-        : previous
-            .inputIndex;
+  scheduleReviewReason:
+    "",
 
-    const currentRank =
-      Number.isFinite(
-        Number(
-          prepared
-            .__fileRank
-        )
-      )
-        ? Number(
-            prepared
-              .__fileRank
-          )
-        : index;
+  scheduleStartMeridiemInferred:
+    false,
 
-    if (
-      currentRank >=
-      previousRank
-    ) {
-      map.set(
-        prepared.idNorm,
-        {
-          student:
-            prepared,
+  scheduleDurationMinutes:
+    null,
 
-          inputIndex:
-            index,
-        }
-      );
-    }
-  }
+  salonRaw:
+    "",
 
-  return Array.from(
-    map.values()
-  ).map(
-    (entry) =>
-      entry.student
-  );
-}
+  salon:
+    "",
+
+  courseId:
+    "",
+});
 
 
 /* =========================================================
-   LLAVE DE SECCIÓN
+   CATEGORÍA DESDE EL PERÍODO
    ========================================================= */
 
-export function getSectionKey(
-  student
-) {
-  const prepared =
-    prepareStudent(
-      student
+const tryUpdateCategory = (
+  text,
+  meta
+) => {
+  const category =
+    normalizePdfCategory(
+      text
     );
+
 
   if (
-    prepared.courseId
+    category !==
+    "N/A"
   ) {
-    return `COURSE:${String(
-      prepared.courseId
-    ).trim()}`;
+    meta.categoryRaw =
+      String(
+        text ||
+        ""
+      ).trim();
+
+    meta.category =
+      category;
   }
-
-  /*
-    Fallback cuando falta Curso ID.
-  */
-
-  return [
-    prepared.category ||
-      "N/A",
-
-    prepared.levelNorm ||
-      "N/A",
-
-    prepared.frequencyNorm ||
-      "N/A",
-
-    prepared.scheduleBlock ||
-      "N/A",
-
-    prepared.salon ||
-      "N/A",
-  ].join("|");
-}
+};
 
 
 /* =========================================================
-   DENSIDAD
+   EXTRACCIÓN DE METADATOS
    ========================================================= */
 
-export function calculateAverageDensity(
-  students = []
-) {
-  const prepared =
-    students.map(
-      prepareStudent
-    );
-
-  if (
-    !prepared.length
-  ) {
-    return {
-      students: 0,
-
-      sections: 0,
-
-      average: 0,
-    };
-  }
-
-  const sectionKeys =
-    prepared
-      .map(
-        getSectionKey
-      )
-      .filter(Boolean);
-
-  const sections =
-    new Set(
-      sectionKeys
-    );
-
-  const sectionCount =
-    sections.size;
-
-  return {
-    students:
-      prepared.length,
-
-    sections:
-      sectionCount,
-
-    average:
-      sectionCount > 0
-        ? round1(
-            prepared.length /
-            sectionCount
-          )
-        : 0,
-  };
-}
-
-
-/* =========================================================
-   DESERCIÓN POR NIVEL
-   ========================================================= */
-
-export function calculateDropoutByLevel(
-  lostStudents = []
-) {
-  const map =
-    new Map();
-
-  for (
-    const student
-    of lostStudents
-  ) {
-    const prepared =
-      prepareStudent(
-        student
-      );
-
-    const level =
-      prepared.levelNorm ||
-      "N/A";
-
-    map.set(
-      level,
-
-      (
-        map.get(
-          level
-        ) || 0
-      ) + 1
-    );
-  }
-
-  return Array.from(
-    map.entries()
-  )
-    .map(
-      (
-        [
-          level,
-          count,
-        ]
-      ) => ({
-        level,
-
-        count,
-      })
-    )
-    .sort(
-      (a, b) => {
-        const aNumber =
-          getLevelNumber(
-            a.level
-          );
-
-        const bNumber =
-          getLevelNumber(
-            b.level
-          );
-
-        if (
-          aNumber !==
-          bNumber
-        ) {
-          return (
-            aNumber -
-            bNumber
-          );
-        }
-
-        return a.level.localeCompare(
-          b.level
-        );
-      }
-    );
-}
-
-
-/* =========================================================
-   DESERCIÓN POR HORARIO
-   ========================================================= */
-
-export function calculateScheduleAttrition(
-  studentsWhoShouldContinue = [],
-  lostStudents = []
-) {
-  const previousMap =
-    new Map();
-
-  const lostMap =
-    new Map();
-
-  for (
-    const student
-    of studentsWhoShouldContinue
-  ) {
-    const prepared =
-      prepareStudent(
-        student
-      );
-
-    const schedule =
-      prepared.scheduleBlock ||
-      "N/A";
-
-    previousMap.set(
-      schedule,
-
-      (
-        previousMap.get(
-          schedule
-        ) || 0
-      ) + 1
-    );
-  }
-
-  for (
-    const student
-    of lostStudents
-  ) {
-    const prepared =
-      prepareStudent(
-        student
-      );
-
-    const schedule =
-      prepared.scheduleBlock ||
-      "N/A";
-
-    lostMap.set(
-      schedule,
-
-      (
-        lostMap.get(
-          schedule
-        ) || 0
-      ) + 1
-    );
-  }
-
-  const schedules =
-    new Set([
-      ...previousMap.keys(),
-
-      ...lostMap.keys(),
-    ]);
-
-  return Array.from(
-    schedules
-  )
-    .map(
-      (schedule) => {
-        const previous =
-          previousMap.get(
-            schedule
-          ) || 0;
-
-        const lost =
-          lostMap.get(
-            schedule
-          ) || 0;
-
-        return {
-          schedule,
-
-          previous,
-
-          /*
-            Alias temporal para App.jsx antiguo.
-          */
-
-          eligible:
-            previous,
-
-          lost,
-
-          retained:
-            Math.max(
-              previous -
-              lost,
-              0
-            ),
-
-          rate:
-            safePercentage(
-              lost,
-              previous
-            ),
-        };
-      }
-    )
-    .sort(
-      (a, b) => {
-        if (
-          b.lost !==
-          a.lost
-        ) {
-          return (
-            b.lost -
-            a.lost
-          );
-        }
-
-        if (
-          b.rate !==
-          a.rate
-        ) {
-          return (
-            b.rate -
-            a.rate
-          );
-        }
-
-        return a.schedule.localeCompare(
-          b.schedule
-        );
-      }
-    );
-}
-
-
-/* =========================================================
-   DESERCIÓN POR FRECUENCIA
-   ========================================================= */
-
-export function calculateFrequencyAttrition(
-  studentsWhoShouldContinue = [],
-  lostStudents = []
-) {
-  const previousMap =
-    new Map();
-
-  const lostMap =
-    new Map();
-
-  for (
-    const student
-    of studentsWhoShouldContinue
-  ) {
-    const prepared =
-      prepareStudent(
-        student
-      );
-
-    const frequency =
-      prepared.frequencyNorm ||
-      FREQUENCIES.NA;
-
-    previousMap.set(
-      frequency,
-
-      (
-        previousMap.get(
-          frequency
-        ) || 0
-      ) + 1
-    );
-  }
-
-  for (
-    const student
-    of lostStudents
-  ) {
-    const prepared =
-      prepareStudent(
-        student
-      );
-
-    const frequency =
-      prepared.frequencyNorm ||
-      FREQUENCIES.NA;
-
-    lostMap.set(
-      frequency,
-
-      (
-        lostMap.get(
-          frequency
-        ) || 0
-      ) + 1
-    );
-  }
-
-  const frequencies =
-    new Set([
-      ...previousMap.keys(),
-
-      ...lostMap.keys(),
-    ]);
-
-  return Array.from(
-    frequencies
-  )
-    .map(
-      (frequency) => {
-        const previous =
-          previousMap.get(
-            frequency
-          ) || 0;
-
-        const lost =
-          lostMap.get(
-            frequency
-          ) || 0;
-
-        return {
-          frequency,
-
-          previous,
-
-          lost,
-
-          retained:
-            Math.max(
-              previous -
-              lost,
-              0
-            ),
-
-          rate:
-            safePercentage(
-              lost,
-              previous
-            ),
-        };
-      }
-    )
-    .sort(
-      (a, b) => {
-        if (
-          b.lost !==
-          a.lost
-        ) {
-          return (
-            b.lost -
-            a.lost
-          );
-        }
-
-        return a.frequency.localeCompare(
-          b.frequency
-        );
-      }
-    );
-}
-
-
-/* =========================================================
-   HORARIO CON MAYOR VOLUMEN
-   ========================================================= */
-
-export function getTopDropoutScheduleByVolume(
-  scheduleRows = []
-) {
-  if (
-    !scheduleRows.length
-  ) {
-    return {
-      schedule:
-        "N/A",
-
-      lost: 0,
-
-      previous: 0,
-
-      eligible: 0,
-
-      rate: 0,
-    };
-  }
-
-  const valid =
-    scheduleRows.filter(
-      (row) =>
-        row.schedule &&
-        row.schedule !==
-          "N/A"
-    );
-
-  if (
-    !valid.length
-  ) {
-    return {
-      schedule:
-        "N/A",
-
-      lost: 0,
-
-      previous: 0,
-
-      eligible: 0,
-
-      rate: 0,
-    };
-  }
-
-  const sorted =
-    [...valid].sort(
-      (a, b) => {
-        if (
-          b.lost !==
-          a.lost
-        ) {
-          return (
-            b.lost -
-            a.lost
-          );
-        }
-
-        if (
-          b.rate !==
-          a.rate
-        ) {
-          return (
-            b.rate -
-            a.rate
-          );
-        }
-
-        return a.schedule.localeCompare(
-          b.schedule
-        );
-      }
-    );
-
-  return sorted[0];
-}
-
-
-/* =========================================================
-   HORARIO CON MAYOR TASA
-   ========================================================= */
-
-export function getTopDropoutScheduleByRate(
-  scheduleRows = []
-) {
-  if (
-    !scheduleRows.length
-  ) {
-    return {
-      schedule:
-        "N/A",
-
-      lost: 0,
-
-      previous: 0,
-
-      eligible: 0,
-
-      rate: 0,
-    };
-  }
-
-  const valid =
-    scheduleRows.filter(
-      (row) =>
-        row.schedule &&
-        row.schedule !==
-          "N/A"
-    );
-
-  if (
-    !valid.length
-  ) {
-    return {
-      schedule:
-        "N/A",
-
-      lost: 0,
-
-      previous: 0,
-
-      eligible: 0,
-
-      rate: 0,
-    };
-  }
-
-  const sorted =
-    [...valid].sort(
-      (a, b) => {
-        if (
-          b.rate !==
-          a.rate
-        ) {
-          return (
-            b.rate -
-            a.rate
-          );
-        }
-
-        if (
-          b.lost !==
-          a.lost
-        ) {
-          return (
-            b.lost -
-            a.lost
-          );
-        }
-
-        if (
-          b.previous !==
-          a.previous
-        ) {
-          return (
-            b.previous -
-            a.previous
-          );
-        }
-
-        return a.schedule.localeCompare(
-          b.schedule
-        );
-      }
-    );
-
-  return sorted[0];
-}
-
-
-/* =========================================================
-   CAMBIOS DE FRECUENCIA
-   ========================================================= */
-
-export function detectFrequencyChangesDetailed(
-  reenrolledPairs = []
-) {
-  const changes = [];
-
-  const unresolvedPairs =
-    [];
-
-  for (
-    const pair
-    of reenrolledPairs
-  ) {
-    const oldStudent =
-      prepareStudent(
-        pair.oldS
-      );
-
-    const newStudent =
-      prepareStudent(
-        pair.newS
-      );
-
-    const oldFrequency =
-      normalizeFrequency(
-        oldStudent.frequencyNorm
-      );
-
-    const newFrequency =
-      normalizeFrequency(
-        newStudent.frequencyNorm
-      );
-
-    /*
-      Si alguna frecuencia no pudo reconocerse,
-      no afirmamos que hubo cambio.
-    */
-
-    if (
-      oldFrequency ===
-        FREQUENCIES.NA ||
-      newFrequency ===
-        FREQUENCIES.NA
-    ) {
-      unresolvedPairs.push({
-        idNorm:
-          oldStudent.idNorm,
-
-        oldS:
-          oldStudent,
-
-        newS:
-          newStudent,
-
-        oldFrequency,
-
-        newFrequency,
-      });
-
-      continue;
-    }
-
-    if (
-      oldFrequency ===
-      newFrequency
-    ) {
-      continue;
-    }
-
-    changes.push({
-      ...newStudent,
-
-      oldFrequency,
-
-      newFrequency,
-
-      previousStudent:
-        oldStudent,
-
-      currentStudent:
-        newStudent,
-    });
-  }
-
-  return {
-    changes,
-
-    unresolvedPairs,
-  };
-}
-
-
-/*
-  Compatibilidad:
-
-  Devuelve solamente la lista de cambios.
-*/
-
-export function detectFrequencyChanges(
-  reenrolledPairs = []
-) {
-  return detectFrequencyChangesDetailed(
-    reenrolledPairs
-  ).changes;
-}
-
-
-/* =========================================================
-   TRANSICIONES DE CATEGORÍA
-   ========================================================= */
-
-export function detectCategoryTransitions(
-  reenrolledPairs = []
-) {
-  const ninosJovenes =
-    [];
-
-  const ninosAdultos =
-    [];
-
-  const jovenesAdultos =
-    [];
-
-  const otherTransitions =
-    [];
-
-  const all = [];
-
-  for (
-    const pair
-    of reenrolledPairs
-  ) {
-    const oldStudent =
-      prepareStudent(
-        pair.oldS
-      );
-
-    const newStudent =
-      prepareStudent(
-        pair.newS
-      );
-
-    if (
-      !oldStudent.category ||
-      !newStudent.category ||
-      oldStudent.category ===
-        "N/A" ||
-      newStudent.category ===
-        "N/A"
-    ) {
-      continue;
-    }
-
-    if (
-      oldStudent.category ===
-      newStudent.category
-    ) {
-      continue;
-    }
-
-    const transition = {
-      ...newStudent,
-
-      oldCategory:
-        oldStudent.category,
-
-      newCategory:
-        newStudent.category,
-
-      previousStudent:
-        oldStudent,
-
-      currentStudent:
-        newStudent,
-    };
-
-    all.push(
-      transition
-    );
-
-    /* -----------------------------------------------------
-       NIÑOS -> JÓVENES
-       ----------------------------------------------------- */
-
-    if (
-      oldStudent.category ===
-        "Niños" &&
-      newStudent.category ===
-        "Jóvenes"
-    ) {
-      ninosJovenes.push(
-        transition
-      );
-
-      continue;
-    }
-
-    /* -----------------------------------------------------
-       NIÑOS -> ADULTOS
-       ----------------------------------------------------- */
-
-    if (
-      oldStudent.category ===
-        "Niños" &&
-      newStudent.category ===
-        "Adultos"
-    ) {
-      ninosAdultos.push(
-        transition
-      );
-
-      continue;
-    }
-
-    /* -----------------------------------------------------
-       JÓVENES -> ADULTOS
-       ----------------------------------------------------- */
-
-    if (
-      oldStudent.category ===
-        "Jóvenes" &&
-      newStudent.category ===
-        "Adultos"
-    ) {
-      jovenesAdultos.push(
-        transition
-      );
-
-      continue;
-    }
-
-    /*
-      Cualquier otro cambio se conserva para auditoría.
-
-      Ejemplos:
-
-      Adultos -> Jóvenes
-      Jóvenes -> Niños
-
-      No debería descartarse silenciosamente.
-    */
-
-    otherTransitions.push(
-      transition
-    );
-  }
-
-  return {
-    ninosJovenes,
-
-    ninosAdultos,
-
-    jovenesAdultos,
-
-    otherTransitions,
-
-    all,
-
-    total:
-      all.length,
-  };
-}
-
-
-/* =========================================================
-   MOTOR PRINCIPAL
-   ========================================================= */
-
-export function analyzeContinuity({
-  oldStudents = [],
-
-  newStudents = [],
-
-  graduationRules =
-    DEFAULT_GRADUATION_RULES,
-
-  strict = true,
-} = {}) {
-  /* =======================================================
-     1. NORMALIZAR
-     ======================================================= */
-
-  const oldPrepared =
-    oldStudents.map(
-      prepareStudent
-    );
-
-  const newPrepared =
-    newStudents.map(
-      prepareStudent
-    );
-
-
-  /* =======================================================
-     2. CALIDAD DE DATOS
-     ======================================================= */
-
-  const oldQuality =
-    inspectIdentityQuality(
-      oldPrepared
-    );
-
-  const newQuality =
-    inspectIdentityQuality(
-      newPrepared
-    );
-
-  const criticalErrors =
-    [];
-
-  const warnings =
-    [];
-
-
-  /* -------------------------------------------------------
-     IDENTIFICACIÓN
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .missingIds.length
-  ) {
-    criticalErrors.push(
-      `Período anterior: ${oldQuality.missingIds.length} registro(s) sin identificación válida.`
-    );
-  }
-
-  if (
-    newQuality
-      .missingIds.length
-  ) {
-    criticalErrors.push(
-      `Período actual: ${newQuality.missingIds.length} registro(s) sin identificación válida.`
-    );
+const extractMetaFromLine = (
+  line,
+  meta
+) => {
+  const original =
+    String(
+      line ?? ""
+    ).trim();
+
+
+  if (!original) {
+    return;
   }
 
 
   /* -------------------------------------------------------
-     NIVEL
+     PERÍODO
      ------------------------------------------------------- */
 
-  if (
-    oldQuality
-      .missingLevels.length
-  ) {
-    criticalErrors.push(
-      `Período anterior: ${oldQuality.missingLevels.length} registro(s) sin nivel reconocible.`
+  const periodMatch =
+    original.match(
+      /^PER[IÍ]ODO\s*:\s*(.*)$/i
     );
-  }
+
 
   if (
-    newQuality
-      .missingLevels.length
+    periodMatch
   ) {
-    criticalErrors.push(
-      `Período actual: ${newQuality.missingLevels.length} registro(s) sin nivel reconocible.`
+    meta.periodRaw =
+      String(
+        periodMatch[1] ||
+        ""
+      ).trim();
+
+
+    /*
+      Muchos PDFs incluyen la categoría dentro
+      del nombre del período.
+    */
+
+    tryUpdateCategory(
+      meta.periodRaw,
+      meta
     );
+
+    return;
   }
 
 
@@ -2082,1394 +995,1263 @@ export function analyzeContinuity({
      CATEGORÍA
      ------------------------------------------------------- */
 
-  if (
-    oldQuality
-      .missingCategories
-      .length
-  ) {
-    criticalErrors.push(
-      `Período anterior: ${oldQuality.missingCategories.length} registro(s) sin categoría reconocible.`
+  const categoryMatch =
+    original.match(
+      /^CATEGOR[IÍ]A\s*:\s*(.*)$/i
     );
-  }
+
 
   if (
-    newQuality
-      .missingCategories
-      .length
+    categoryMatch
   ) {
-    criticalErrors.push(
-      `Período actual: ${newQuality.missingCategories.length} registro(s) sin categoría reconocible.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     MISMA CÉDULA, NOMBRES DIFERENTES
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .nameConflicts.length
-  ) {
-    criticalErrors.push(
-      `Período anterior: ${oldQuality.nameConflicts.length} identificación(es) están asociadas a nombres diferentes.`
-    );
-  }
-
-  if (
-    newQuality
-      .nameConflicts.length
-  ) {
-    criticalErrors.push(
-      `Período actual: ${newQuality.nameConflicts.length} identificación(es) están asociadas a nombres diferentes.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     MISMA CÉDULA, DATOS ACADÉMICOS DIFERENTES
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .academicConflicts
-      .length
-  ) {
-    criticalErrors.push(
-      `Período anterior: ${oldQuality.academicConflicts.length} identificación(es) aparecen con información académica diferente dentro del mismo período.`
-    );
-  }
-
-  if (
-    newQuality
-      .academicConflicts
-      .length
-  ) {
-    criticalErrors.push(
-      `Período actual: ${newQuality.academicConflicts.length} identificación(es) aparecen con información académica diferente dentro del mismo período.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     DUPLICADOS SIN CONFLICTO
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .duplicates.length
-  ) {
-    warnings.push(
-      `Período anterior: ${oldQuality.duplicates.length} identificación(es) repetida(s).`
-    );
-  }
-
-  if (
-    newQuality
-      .duplicates.length
-  ) {
-    warnings.push(
-      `Período actual: ${newQuality.duplicates.length} identificación(es) repetida(s).`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     FRECUENCIAS DESCONOCIDAS
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .unknownFrequencies
-      .length
-  ) {
-    warnings.push(
-      `Período anterior: ${oldQuality.unknownFrequencies.length} registro(s) con frecuencia no reconocida.`
-    );
-  }
-
-  if (
-    newQuality
-      .unknownFrequencies
-      .length
-  ) {
-    warnings.push(
-      `Período actual: ${newQuality.unknownFrequencies.length} registro(s) con frecuencia no reconocida.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     HORARIOS PARA REVISAR
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .schedulesToReview
-      .length
-  ) {
-    warnings.push(
-      `Período anterior: ${oldQuality.schedulesToReview.length} registro(s) tienen un horario que requiere revisión.`
-    );
-  }
-
-  if (
-    newQuality
-      .schedulesToReview
-      .length
-  ) {
-    warnings.push(
-      `Período actual: ${newQuality.schedulesToReview.length} registro(s) tienen un horario que requiere revisión.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     ERRORES ORTOGRÁFICOS DE FRECUENCIA CORREGIDOS
-     ------------------------------------------------------- */
-
-  const frequencyCorrectionCount =
-    oldQuality
-      .frequencyCorrections
-      .length +
-    newQuality
-      .frequencyCorrections
-      .length;
-
-  if (
-    frequencyCorrectionCount >
-    0
-  ) {
-    warnings.push(
-      `Se normalizaron ${frequencyCorrectionCount} registro(s) con variantes o errores de escritura en la frecuencia.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     NOMBRES VACÍOS
-     ------------------------------------------------------- */
-
-  if (
-    oldQuality
-      .missingNames.length
-  ) {
-    warnings.push(
-      `Período anterior: ${oldQuality.missingNames.length} registro(s) sin nombre utilizable.`
-    );
-  }
-
-  if (
-    newQuality
-      .missingNames.length
-  ) {
-    warnings.push(
-      `Período actual: ${newQuality.missingNames.length} registro(s) sin nombre utilizable.`
-    );
-  }
-
-
-  /* -------------------------------------------------------
-     BLOQUEO ESTRICTO
-     ------------------------------------------------------- */
-
-  if (
-    strict &&
-    criticalErrors.length
-  ) {
-    throw new Error(
-      [
-        "El análisis fue detenido por problemas críticos de calidad de datos.",
-
-        ...criticalErrors,
-      ].join(" ")
-    );
-  }
-
-
-  /* =======================================================
-     3. DEDUPLICAR
-     ======================================================= */
-
-  const oldUnique =
-    dedupeStudentsById(
-      oldPrepared
-    );
-
-  const newUnique =
-    dedupeStudentsById(
-      newPrepared
-    );
-
-
-  /* =======================================================
-     4. MAPAS DE IDENTIDAD
-     ======================================================= */
-
-  const oldById =
-    new Map(
-      oldUnique.map(
-        (student) => [
-          student.idNorm,
-
-          student,
-        ]
-      )
-    );
-
-  const newById =
-    new Map(
-      newUnique.map(
-        (student) => [
-          student.idNorm,
-
-          student,
-        ]
-      )
-    );
-
-  const oldIds =
-    new Set(
-      oldById.keys()
-    );
-
-  const newIds =
-    new Set(
-      newById.keys()
-    );
-
-
-  /* =======================================================
-     5. NIVEL TERMINAL DEL PERÍODO ANTERIOR
-     ======================================================= */
-
-  const terminalPrevious =
-    oldUnique.filter(
-      (student) =>
-        isTerminalLevelStudent(
-          student,
-          graduationRules
-        )
-    );
-
-
-  /* =======================================================
-     6. GRADUANDOS
-
-     REGLA:
-
-     Adultos L20 anterior
-     +
-     NO aparece en período nuevo
-     ======================================================= */
-
-  const graduates =
-    terminalPrevious.filter(
-      (student) =>
-        !newIds.has(
-          student.idNorm
-        )
-    );
-
-
-  /* =======================================================
-     7. NIVEL TERMINAL QUE REAPARECE
-
-     NO es graduando.
-
-     Tampoco debe mezclarse automáticamente con
-     reinscritos regulares.
-     ======================================================= */
-
-  const terminalReappeared =
-    terminalPrevious.filter(
-      (student) =>
-        newIds.has(
-          student.idNorm
-        )
-    );
-
-  if (
-    terminalReappeared.length
-  ) {
-    warnings.push(
-      `${terminalReappeared.length} estudiante(s) de Adultos L20 del período anterior aparecen nuevamente en el período nuevo. No fueron contados como graduandos y requieren revisión académica.`
-    );
-  }
-
-
-  /* =======================================================
-     8. ESTUDIANTES QUE DEBÍAN CONTINUAR
-
-     Esta es la base correcta para:
-
-     - reinscripción
-     - pérdida
-
-     Ya NO usamos "elegibles" como término de gestión.
-     ======================================================= */
-
-  const shouldContinue =
-    oldUnique.filter(
-      (student) =>
-        !isTerminalLevelStudent(
-          student,
-          graduationRules
-        )
-    );
-
-
-  /* =======================================================
-     9. REINSCRITOS
-     ======================================================= */
-
-  const reenrolledPairs =
-    [];
-
-  for (
-    const oldStudent
-    of shouldContinue
-  ) {
-    const newStudent =
-      newById.get(
-        oldStudent.idNorm
+    meta.categoryRaw =
+      String(
+        categoryMatch[1] ||
+        ""
+      ).trim();
+
+
+    meta.category =
+      normalizePdfCategory(
+        meta.categoryRaw
       );
 
+    return;
+  }
+
+
+  /* -------------------------------------------------------
+     NIVEL
+     ------------------------------------------------------- */
+
+  const levelMatch =
+    original.match(
+      /^NIVEL\s*:\s*(.*)$/i
+    );
+
+
+  if (
+    levelMatch
+  ) {
+    meta.levelRaw =
+      String(
+        levelMatch[1] ||
+        ""
+      ).trim();
+
+
+    meta.levelNorm =
+      normalizePdfLevel(
+        meta.levelRaw
+      );
+
+    return;
+  }
+
+
+  /* -------------------------------------------------------
+     HORARIO
+     ------------------------------------------------------- */
+
+  const scheduleMatch =
+    original.match(
+      /^HORARIO\s*:\s*(.*)$/i
+    );
+
+
+  if (
+    scheduleMatch
+  ) {
+    meta.scheduleRaw =
+      String(
+        scheduleMatch[1] ||
+        ""
+      ).trim();
+
+
+    const schedule =
+      normalizePdfScheduleDetailed(
+        meta.scheduleRaw
+      );
+
+
+    meta.scheduleBlock =
+      schedule.block;
+
+    meta.scheduleValid =
+      schedule.valid;
+
+    meta.scheduleNeedsReview =
+      schedule.needsReview;
+
+    meta.scheduleReviewReason =
+      schedule.reason;
+
+    meta.scheduleStartMeridiemInferred =
+      schedule.startMeridiemInferred;
+
+    meta.scheduleDurationMinutes =
+      schedule.durationMinutes;
+
+    return;
+  }
+
+
+  /* -------------------------------------------------------
+     SALÓN + CURSO ID
+
+     Ejemplo:
+
+     Salón: C11 Curso ID: 65424
+     ------------------------------------------------------- */
+
+  const salonAndCourseMatch =
+    original.match(
+      /^SAL[ÓO]N\s*:\s*(.*?)\s+CURSO\s*ID\s*:\s*([A-Z0-9-]+)/i
+    );
+
+
+  if (
+    salonAndCourseMatch
+  ) {
+    meta.salonRaw =
+      original;
+
+
+    meta.salon =
+      String(
+        salonAndCourseMatch[1] ||
+        ""
+      )
+        .trim()
+        .toUpperCase();
+
+
+    meta.courseId =
+      String(
+        salonAndCourseMatch[2] ||
+        ""
+      ).trim();
+
+    return;
+  }
+
+
+  /*
+    Fallback si cambia ligeramente
+    el formato de Salón / Curso ID.
+  */
+
+  if (
+    /CURSO\s*ID\s*:/i.test(
+      original
+    )
+  ) {
+    meta.salonRaw =
+      original;
+
+
+    const courseMatch =
+      original.match(
+        /CURSO\s*ID\s*:\s*([A-Z0-9-]+)/i
+      );
+
+
     if (
-      !newStudent
+      courseMatch
+    ) {
+      meta.courseId =
+        String(
+          courseMatch[1] ||
+          ""
+        ).trim();
+    }
+
+
+    const salonMatch =
+      original.match(
+        /SAL[ÓO]N\s*:\s*([A-Z0-9-]+)/i
+      );
+
+
+    if (
+      salonMatch
+    ) {
+      meta.salon =
+        String(
+          salonMatch[1] ||
+          ""
+        )
+          .trim()
+          .toUpperCase();
+    }
+  }
+};
+
+
+/* =========================================================
+   LÍNEAS QUE NO SON ESTUDIANTES
+   ========================================================= */
+
+const shouldSkipLine = (
+  line
+) => {
+  const upper =
+    normalizeComparableText(
+      line
+    );
+
+
+  if (!upper) {
+    return true;
+  }
+
+
+  if (
+    upper.includes(
+      "CENTRO VENEZOLANO"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.includes(
+      "LISTA DE ALUMNOS"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "R.I.F"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "SEDE:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "FECHA:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "PERIODO:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "CATEGORIA:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "NIVEL:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "HORARIO:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "PROFESOR:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.startsWith(
+      "SALON:"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.includes(
+      "APELLIDOS"
+    ) &&
+    upper.includes(
+      "NOMBRES"
+    )
+  ) {
+    return true;
+  }
+
+
+  if (
+    upper.includes(
+      "APELLIDOS"
+    ) &&
+    upper.includes(
+      "EMAIL"
+    )
+  ) {
+    return true;
+  }
+
+
+  return false;
+};
+
+
+/* =========================================================
+   TELÉFONO
+   ========================================================= */
+
+const extractTrailingPhone = (
+  value = ""
+) => {
+  const text =
+    String(
+      value ?? ""
+    ).trim();
+
+
+  if (!text) {
+    return {
+      phone:
+        "",
+
+      remaining:
+        "",
+    };
+  }
+
+
+  /*
+    Ejemplos:
+
+    04141234567
+    0414-1234567
+    0414 123 4567
+    +584121234567
+    +58 424-1234567
+  */
+
+  const match =
+    text.match(
+      /(\+?\d(?:[\d\s().-]*\d)?)\s*$/
+    );
+
+
+  if (!match) {
+    return {
+      phone:
+        "",
+
+      remaining:
+        text,
+    };
+  }
+
+
+  const candidate =
+    String(
+      match[1] ||
+        ""
+    ).trim();
+
+
+  const digitCount =
+    candidate.replace(
+      /\D/g,
+      ""
+    ).length;
+
+
+  /*
+    Evita interpretar pequeños números
+    accidentales como teléfono.
+  */
+
+  if (
+    digitCount < 7 ||
+    digitCount > 15
+  ) {
+    return {
+      phone:
+        "",
+
+      remaining:
+        text,
+    };
+  }
+
+
+  return {
+    phone:
+      candidate,
+
+    remaining:
+      text
+        .slice(
+          0,
+          match.index
+        )
+        .trim(),
+  };
+};
+
+
+/* =========================================================
+   EMAIL + NOMBRE
+   ========================================================= */
+
+const extractEmailAndName = (
+  value = ""
+) => {
+  let text =
+    String(
+      value ?? ""
+    ).trim();
+
+
+  if (!text) {
+    return {
+      name:
+        "",
+
+      email:
+        "",
+
+      emailRaw:
+        "",
+
+      emailValid:
+        false,
+
+      missingEmail:
+        true,
+    };
+  }
+
+
+  /*
+    Primero buscamos cualquier token que contenga @.
+
+    Incluso si el dominio tiene errores,
+    conservamos el contenido para auditoría.
+  */
+
+  const emailMatch =
+    text.match(
+      /(?:^|\s)([^\s]+@[^\s]+)(?=\s|$)/
+    );
+
+
+  if (
+    emailMatch
+  ) {
+    const emailRaw =
+      String(
+        emailMatch[1] ||
+        ""
+      ).trim();
+
+
+    const emailStart =
+      emailMatch.index +
+      emailMatch[0]
+        .indexOf(
+          emailRaw
+        );
+
+
+    const name =
+      text
+        .slice(
+          0,
+          emailStart
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+
+    return {
+      name,
+
+      email:
+        emailRaw,
+
+      emailRaw,
+
+      emailValid:
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(
+          emailRaw
+        ),
+
+      missingEmail:
+        false,
+    };
+  }
+
+
+  /*
+    Algunos PDFs pueden tener un correo mal formado
+    sin @, pero terminando en una extensión similar
+    a .com, .net, etc.
+
+    Lo conservamos como dato para revisión.
+  */
+
+  const malformedEmailMatch =
+    text.match(
+      /(?:^|\s)([^\s]+\.(?:COM|NET|ORG|EDU|VE|ES|CIN|XOM))$/i
+    );
+
+
+  if (
+    malformedEmailMatch
+  ) {
+    const emailRaw =
+      String(
+        malformedEmailMatch[1] ||
+        ""
+      ).trim();
+
+
+    const emailStart =
+      malformedEmailMatch.index +
+      malformedEmailMatch[0]
+        .indexOf(
+          emailRaw
+        );
+
+
+    const name =
+      text
+        .slice(
+          0,
+          emailStart
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+
+    return {
+      name,
+
+      email:
+        emailRaw,
+
+      emailRaw,
+
+      emailValid:
+        false,
+
+      missingEmail:
+        false,
+    };
+  }
+
+
+  /*
+    Marcadores de correo faltante:
+
+    -
+    ...
+    .......
+  */
+
+  const placeholderMatch =
+    text.match(
+      /(?:\s|^)(-|\.+)\s*$/
+    );
+
+
+  if (
+    placeholderMatch
+  ) {
+    text =
+      text
+        .slice(
+          0,
+          placeholderMatch.index
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+
+    return {
+      name:
+        text,
+
+      email:
+        "",
+
+      emailRaw:
+        placeholderMatch[1],
+
+      emailValid:
+        false,
+
+      missingEmail:
+        true,
+    };
+  }
+
+
+  /*
+    No encontramos correo.
+
+    Conservamos la parte textual como nombre.
+  */
+
+  return {
+    name:
+      text
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim(),
+
+    email:
+      "",
+
+    emailRaw:
+      "",
+
+    emailValid:
+      false,
+
+    missingEmail:
+      true,
+  };
+};
+
+
+/* =========================================================
+   FILA DE ESTUDIANTE
+   ========================================================= */
+
+const parseStudentLine = (
+  line,
+  meta,
+  fileName
+) => {
+  const original =
+    String(
+      line ?? ""
+    ).trim();
+
+
+  if (!original) {
+    return null;
+  }
+
+
+  /*
+    Casos:
+
+    1 17912684 APELLIDO NOMBRE ...
+    1 18284765-1 APELLIDO NOMBRE ...
+    1 17.738.636-1 APELLIDO NOMBRE ...
+
+    Se conserva la identificación original.
+  */
+
+  const match =
+    original.match(
+      /^(\d+)\s+([A-Z0-9][A-Z0-9.\-]*)\s+(.+)$/i
+    );
+
+
+  if (!match) {
+    return null;
+  }
+
+
+  const rowNumber =
+    parseInt(
+      match[1],
+      10
+    );
+
+
+  const id =
+    String(
+      match[2] ||
+        ""
+    ).trim();
+
+
+  let remaining =
+    String(
+      match[3] ||
+        ""
+    ).trim();
+
+
+  if (
+    !id ||
+    !remaining
+  ) {
+    return null;
+  }
+
+
+  /* -------------------------------------------------------
+     TELÉFONO
+     ------------------------------------------------------- */
+
+  const phoneResult =
+    extractTrailingPhone(
+      remaining
+    );
+
+
+  const phone =
+    phoneResult.phone;
+
+
+  remaining =
+    phoneResult.remaining;
+
+
+  /* -------------------------------------------------------
+     EMAIL + NOMBRE
+     ------------------------------------------------------- */
+
+  const identity =
+    extractEmailAndName(
+      remaining
+    );
+
+
+  if (
+    !identity.name
+  ) {
+    return null;
+  }
+
+
+  /* -------------------------------------------------------
+     FRECUENCIA
+
+     frecuencia.js decide la frecuencia institucional.
+
+     Puede detectar:
+
+     MARTES Y JUEVES
+     MIÉRCOLES Y VIERNES
+     LUNES
+     SABATINO
+     INTENSIVO
+     SEMI INTENSIVO
+
+     También tolera errores como THRUSDAY.
+     ------------------------------------------------------- */
+
+  const frequency =
+    detectFrequency({
+      scheduleRaw:
+        meta.scheduleRaw,
+
+      periodRaw:
+        meta.periodRaw,
+
+      fileName,
+    });
+
+
+  const frequencyNorm =
+    frequency.frequency ||
+    FREQUENCIES.NA;
+
+
+  return {
+    /* -----------------------------------------------------
+       FILA
+       ----------------------------------------------------- */
+
+    rowNumber,
+
+
+    /* -----------------------------------------------------
+       IDENTIDAD
+       ----------------------------------------------------- */
+
+    id,
+
+    name:
+      identity.name,
+
+    email:
+      identity.email,
+
+    emailRaw:
+      identity.emailRaw,
+
+    emailValid:
+      identity.emailValid,
+
+    missingEmail:
+      identity.missingEmail,
+
+    phone,
+
+
+    /* -----------------------------------------------------
+       CATEGORÍA
+       ----------------------------------------------------- */
+
+    category:
+      meta.category ||
+      "N/A",
+
+    categoryRaw:
+      meta.categoryRaw ||
+      "",
+
+
+    /* -----------------------------------------------------
+       NIVEL
+       ----------------------------------------------------- */
+
+    level:
+      meta.levelRaw ||
+      "N/A",
+
+    levelRaw:
+      meta.levelRaw ||
+      "",
+
+    levelNorm:
+      meta.levelNorm ||
+      "N/A",
+
+
+    /* -----------------------------------------------------
+       FRECUENCIA
+       ----------------------------------------------------- */
+
+    frequencyNorm,
+
+    /*
+      Compatibilidad con otras partes del proyecto.
+    */
+
+    frequencyBase:
+      frequencyNorm,
+
+    frequencyRaw:
+      meta.scheduleRaw ||
+      "",
+
+    frequencySource:
+      frequency.source ||
+      "none",
+
+    frequencyConfidence:
+      frequency.confidence ||
+      "low",
+
+    frequencyDays:
+      frequency.days ||
+      [],
+
+    frequencyCorrections:
+      frequency.corrections ||
+      [],
+
+
+    /* -----------------------------------------------------
+       HORARIO
+       ----------------------------------------------------- */
+
+    schedule:
+      meta.scheduleRaw ||
+      "N/A",
+
+    scheduleRaw:
+      meta.scheduleRaw ||
+      "",
+
+    scheduleBlock:
+      meta.scheduleBlock ||
+      "N/A",
+
+    scheduleValid:
+      Boolean(
+        meta.scheduleValid
+      ),
+
+    scheduleNeedsReview:
+      Boolean(
+        meta.scheduleNeedsReview
+      ),
+
+    scheduleReviewReason:
+      meta.scheduleReviewReason ||
+      "",
+
+    scheduleStartMeridiemInferred:
+      Boolean(
+        meta.scheduleStartMeridiemInferred
+      ),
+
+    scheduleDurationMinutes:
+      meta.scheduleDurationMinutes,
+
+
+    /* -----------------------------------------------------
+       CURSO
+       ----------------------------------------------------- */
+
+    salon:
+      meta.salon ||
+      "",
+
+    courseId:
+      meta.courseId ||
+      "",
+
+
+    /* -----------------------------------------------------
+       PERÍODO Y ARCHIVO
+       ----------------------------------------------------- */
+
+    periodRaw:
+      meta.periodRaw ||
+      "",
+
+    sourceFile:
+      fileName ||
+      "",
+  };
+};
+
+
+/* =========================================================
+   VALIDACIÓN DE REGISTRO
+   ========================================================= */
+
+const validateStudentMetadata = (
+  student
+) => {
+  const warnings = [];
+
+
+  if (
+    !student.category ||
+    student.category ===
+      "N/A"
+  ) {
+    warnings.push(
+      "category_not_recognized"
+    );
+  }
+
+
+  if (
+    !student.levelNorm ||
+    student.levelNorm ===
+      "N/A"
+  ) {
+    warnings.push(
+      "level_not_recognized"
+    );
+  }
+
+
+  if (
+    !student.frequencyNorm ||
+    student.frequencyNorm ===
+      FREQUENCIES.NA
+  ) {
+    warnings.push(
+      "frequency_not_recognized"
+    );
+  }
+
+
+  if (
+    student.scheduleNeedsReview
+  ) {
+    warnings.push(
+      student.scheduleReviewReason ||
+      "schedule_needs_review"
+    );
+  }
+
+
+  if (
+    student.missingEmail
+  ) {
+    warnings.push(
+      "missing_email"
+    );
+  } else if (
+    !student.emailValid
+  ) {
+    warnings.push(
+      "invalid_email_format"
+    );
+  }
+
+
+  if (
+    !student.phone
+  ) {
+    warnings.push(
+      "missing_phone"
+    );
+  }
+
+
+  return warnings;
+};
+
+
+/* =========================================================
+   PARSER PRINCIPAL
+   ========================================================= */
+
+/*
+  IMPORTANTE:
+
+  Esta función está EXPORTADA DIRECTAMENTE.
+
+  Eso corrige el error de Vite:
+
+  "parseCevazPdf is not exported by
+   src/utils/parseCevazPdf.js"
+*/
+
+export async function parseCevazPdf(
+  file
+) {
+  if (!file) {
+    throw new Error(
+      "No se recibió un archivo PDF."
+    );
+  }
+
+
+  const text =
+    await extractTextFromPdf(
+      file
+    );
+
+
+  if (
+    !String(
+      text ||
+      ""
+    ).trim()
+  ) {
+    throw new Error(
+      `El archivo "${file.name}" no contiene texto extraíble.`
+    );
+  }
+
+
+  const lines =
+    String(
+      text
+    )
+      .split(
+        /\r?\n/
+      )
+      .map(
+        (
+          line
+        ) =>
+          line.trim()
+      );
+
+
+  const meta =
+    createEmptyMeta();
+
+
+  /*
+    Fallback inicial de categoría.
+
+    Se usa solamente como apoyo. Las líneas PERÍODO
+    y CATEGORÍA pueden actualizarla después.
+  */
+
+  const firstDocumentBlock =
+    lines
+      .slice(
+        0,
+        40
+      )
+      .join(
+        " "
+      );
+
+
+  tryUpdateCategory(
+    firstDocumentBlock,
+    meta
+  );
+
+
+  const students = [];
+
+
+  for (
+    const line
+    of lines
+  ) {
+    if (!line) {
+      continue;
+    }
+
+
+    /*
+      PRIMERO leemos los metadatos.
+
+      Esto es importante porque una línea NIVEL,
+      HORARIO o SALÓN debe actualizar el estado
+      antes de empezar a leer los estudiantes
+      siguientes.
+    */
+
+    extractMetaFromLine(
+      line,
+      meta
+    );
+
+
+    if (
+      shouldSkipLine(
+        line
+      )
     ) {
       continue;
     }
 
-    reenrolledPairs.push({
-      idNorm:
-        oldStudent.idNorm,
 
-      oldS:
-        oldStudent,
+    const student =
+      parseStudentLine(
+        line,
+        meta,
+        file.name
+      );
 
-      newS:
-        newStudent,
+
+    if (!student) {
+      continue;
+    }
+
+
+    const parseWarnings =
+      validateStudentMetadata(
+        student
+      );
+
+
+    students.push({
+      ...student,
+
+      parseWarnings,
+
+      hasParseWarnings:
+        parseWarnings.length >
+        0,
     });
   }
 
-  const reenrolledPrevious =
-    reenrolledPairs.map(
-      (pair) =>
-        pair.oldS
-    );
-
-  const reenrolledCurrent =
-    reenrolledPairs.map(
-      (pair) =>
-        pair.newS
-    );
-
-
-  /* =======================================================
-     10. PÉRDIDAS
-     ======================================================= */
-
-  const lost =
-    shouldContinue.filter(
-      (student) =>
-        !newIds.has(
-          student.idNorm
-        )
-    );
-
-
-  /* =======================================================
-     11. L01 VS REGULARES EN EL PERÍODO ANTERIOR
-
-     Esta segmentación sirve para estudiar la fuga.
-     ======================================================= */
-
-  const previousLevel1 =
-    shouldContinue.filter(
-      (student) =>
-        student.levelNorm ===
-        "L01"
-    );
-
-  const previousRegular =
-    shouldContinue.filter(
-      (student) =>
-        getLevelNumber(
-          student
-        ) >= 2
-    );
-
-  const level1Lost =
-    lost.filter(
-      (student) =>
-        student.levelNorm ===
-        "L01"
-    );
-
-  const regularLost =
-    lost.filter(
-      (student) =>
-        getLevelNumber(
-          student
-        ) >= 2
-    );
-
-
-  /* =======================================================
-     12. ESTUDIANTES NO PRESENTES EN EL PERÍODO ANTERIOR
-     ======================================================= */
-
-  const notPresentPrevious =
-    newUnique.filter(
-      (student) =>
-        !oldIds.has(
-          student.idNorm
-        )
-    );
-
-
-  /* =======================================================
-     13. INGRESOS NIVEL 01
-
-     DEFINICIÓN DEL USUARIO:
-
-     Nuevo ingreso = nivel 01.
-
-     Por eso contamos TODOS los L01 de la lista nueva.
-     ======================================================= */
-
-  const currentLevel1 =
-    newUnique.filter(
-      (student) =>
-        student.levelNorm ===
-        "L01"
-    );
-
-
-  /*
-    Se conserva adicionalmente esta lista para auditoría:
-
-    L01 actual que además no estaba en el período anterior.
-  */
-
-  const currentLevel1NotPresentPrevious =
-    currentLevel1.filter(
-      (student) =>
-        !oldIds.has(
-          student.idNorm
-        )
-    );
-
-
-  /* =======================================================
-     14. ESTUDIANTES NO PRESENTES EN PERÍODO ANTERIOR L02+
-
-     Este es el nombre correcto.
-
-     NO se denomina automáticamente "nivelación".
-     ======================================================= */
-
-  const notPresentPreviousLevel2Plus =
-    notPresentPrevious.filter(
-      (student) =>
-        getLevelNumber(
-          student
-        ) >= 2
-    );
-
-
-  /* =======================================================
-     15. CAMBIOS DE FRECUENCIA
-     ======================================================= */
-
-  const frequencyResult =
-    detectFrequencyChangesDetailed(
-      reenrolledPairs
-    );
-
-  const frequencyChanges =
-    frequencyResult.changes;
-
-  const unresolvedFrequencyPairs =
-    frequencyResult.unresolvedPairs;
 
   if (
-    unresolvedFrequencyPairs.length
-  ) {
-    warnings.push(
-      `${unresolvedFrequencyPairs.length} comparación(es) de frecuencia no pudieron evaluarse porque una de las frecuencias no fue reconocida.`
-    );
-  }
-
-
-  /* =======================================================
-     16. TRANSICIONES DE CATEGORÍA
-     ======================================================= */
-
-  const categoryTransitions =
-    detectCategoryTransitions(
-      reenrolledPairs
-    );
-
-  if (
-    categoryTransitions
-      .otherTransitions
-      .length
-  ) {
-    warnings.push(
-      `${categoryTransitions.otherTransitions.length} cambio(s) de categoría no estándar fueron detectados y requieren revisión.`
-    );
-  }
-
-  const categoryTransitionsAvailable =
-    reenrolledPairs.some(
-      (pair) =>
-        pair.oldS.category ===
-          "Niños" ||
-        pair.oldS.category ===
-          "Jóvenes"
-    );
-
-
-  /* =======================================================
-     17. TASAS
-     ======================================================= */
-
-  const retentionRate =
-    safePercentage(
-      reenrolledPairs.length,
-      shouldContinue.length
-    );
-
-  const attritionRate =
-    safePercentage(
-      lost.length,
-      shouldContinue.length
-    );
-
-  const level1AttritionRate =
-    safePercentage(
-      level1Lost.length,
-      previousLevel1.length
-    );
-
-  const regularAttritionRate =
-    safePercentage(
-      regularLost.length,
-      previousRegular.length
-    );
-
-
-  /* =======================================================
-     18. DENSIDAD
-     ======================================================= */
-
-  const density =
-    calculateAverageDensity(
-      newUnique
-    );
-
-
-  /* =======================================================
-     19. DESERCIÓN POR NIVEL
-     ======================================================= */
-
-  const dropoutByLevel =
-    calculateDropoutByLevel(
-      lost
-    );
-
-
-  /* =======================================================
-     20. DESERCIÓN POR HORARIO
-     ======================================================= */
-
-  const dropoutBySchedule =
-    calculateScheduleAttrition(
-      shouldContinue,
-
-      lost
-    );
-
-  const topScheduleByVolume =
-    getTopDropoutScheduleByVolume(
-      dropoutBySchedule
-    );
-
-  const topScheduleByRate =
-    getTopDropoutScheduleByRate(
-      dropoutBySchedule
-    );
-
-
-  /* =======================================================
-     21. DESERCIÓN POR FRECUENCIA
-     ======================================================= */
-
-  const dropoutByFrequency =
-    calculateFrequencyAttrition(
-      shouldContinue,
-
-      lost
-    );
-
-
-  /* =======================================================
-     22. CONCILIACIONES
-     ======================================================= */
-
-  /*
-    TOTAL ANTERIOR
-
-    =
-    estudiantes que debían continuar
-    +
-    estudiantes que estaban en nivel terminal
-  */
-
-  const reconciliationPrevious =
-    oldUnique.length ===
-    shouldContinue.length +
-      terminalPrevious.length;
-
-
-  /*
-    NIVEL TERMINAL
-
-    =
-    graduandos reales
-    +
-    L20 que reaparecieron
-  */
-
-  const reconciliationTerminal =
-    terminalPrevious.length ===
-    graduates.length +
-      terminalReappeared.length;
-
-
-  /*
-    DEBÍAN CONTINUAR
-
-    =
-    reinscritos
-    +
-    pérdidas
-  */
-
-  const reconciliationContinuity =
-    shouldContinue.length ===
-    reenrolledPairs.length +
-      lost.length;
-
-
-  /*
-    PERÍODO ACTUAL
-
-    =
-    reinscritos normales
-    +
-    estudiantes no presentes anteriormente
-    +
-    L20 anterior que reaparecieron
-  */
-
-  const reconciliationCurrent =
-    newUnique.length ===
-    reenrolledCurrent.length +
-      notPresentPrevious.length +
-      terminalReappeared.length;
-
-
-  const reconciliationOk =
-    reconciliationPrevious &&
-    reconciliationTerminal &&
-    reconciliationContinuity &&
-    reconciliationCurrent;
-
-
-  if (
-    strict &&
-    !reconciliationOk
+    !students.length
   ) {
     throw new Error(
-      [
-        "La conciliación interna de continuidad no cerró correctamente.",
-
-        `Anterior=${oldUnique.length}.`,
-
-        `Debían continuar=${shouldContinue.length}.`,
-
-        `Nivel terminal anterior=${terminalPrevious.length}.`,
-
-        `Graduandos=${graduates.length}.`,
-
-        `L20 que reaparecen=${terminalReappeared.length}.`,
-
-        `Reinscritos=${reenrolledPairs.length}.`,
-
-        `Pérdidas=${lost.length}.`,
-
-        `Actual=${newUnique.length}.`,
-
-        `No presentes anteriormente=${notPresentPrevious.length}.`,
-      ].join(" ")
+      `No se encontraron estudiantes válidos en "${file.name}".`
     );
   }
 
 
-  /* =======================================================
-     23. RESULTADO
-     ======================================================= */
-
-  return {
-    rulesVersion:
-      CONTINUIDAD_RULES_VERSION,
-
-
-    /* -----------------------------------------------------
-       DATOS BASE
-       ----------------------------------------------------- */
-
-    oldStudents:
-      oldUnique,
-
-    newStudents:
-      newUnique,
-
-    oldById,
-
-    newById,
-
-
-    /* -----------------------------------------------------
-       TOTALES
-       ----------------------------------------------------- */
-
-    totals: {
-      previous:
-        oldUnique.length,
-
-      current:
-        newUnique.length,
-
-      /*
-        Nueva terminología.
-      */
-
-      shouldContinue:
-        shouldContinue.length,
-
-      reenrolled:
-        reenrolledPairs.length,
-
-      lost:
-        lost.length,
-
-      terminalPrevious:
-        terminalPrevious.length,
-
-      graduates:
-        graduates.length,
-
-      terminalReappeared:
-        terminalReappeared.length,
-
-      notPresentPrevious:
-        notPresentPrevious.length,
-
-      currentLevel1:
-        currentLevel1.length,
-
-      currentLevel1NotPresentPrevious:
-        currentLevel1NotPresentPrevious.length,
-
-      notPresentPreviousLevel2Plus:
-        notPresentPreviousLevel2Plus.length,
-
-      frequencyChanges:
-        frequencyChanges.length,
-
-      categoryTransitions:
-        categoryTransitions.total,
-
-      /*
-        =====================================================
-        ALIASES TEMPORALES
-
-        Se mantienen hasta que reemplacemos App.jsx y los
-        tests en los siguientes pasos.
-
-        No son la terminología final del dashboard.
-        =====================================================
-      */
-
-      eligible:
-        shouldContinue.length,
-
-      externalEntrants:
-        notPresentPrevious.length,
-
-      newLevel1:
-        currentLevel1.length,
-
-      externalLevel2Plus:
-        notPresentPreviousLevel2Plus.length,
-
-      graduatesPresentAgain:
-        terminalReappeared.length,
-    },
-
-
-    /* -----------------------------------------------------
-       TASAS
-       ----------------------------------------------------- */
-
-    rates: {
-      retention:
-        retentionRate,
-
-      attrition:
-        attritionRate,
-
-      level1Attrition:
-        level1AttritionRate,
-
-      regularAttrition:
-        regularAttritionRate,
-
-      /*
-        Compatibilidad temporal.
-      */
-
-      newStudentAttrition:
-        level1AttritionRate,
-    },
-
-
-    /* -----------------------------------------------------
-       SEGMENTACIÓN DE FUGA
-       ----------------------------------------------------- */
-
-    segmentation: {
-      level1: {
-        previous:
-          previousLevel1.length,
-
-        lost:
-          level1Lost.length,
-
-        retained:
-          Math.max(
-            previousLevel1.length -
-            level1Lost.length,
-            0
-          ),
-
-        attritionRate:
-          level1AttritionRate,
-      },
-
-      regularStudents: {
-        previous:
-          previousRegular.length,
-
-        lost:
-          regularLost.length,
-
-        retained:
-          Math.max(
-            previousRegular.length -
-            regularLost.length,
-            0
-          ),
-
-        attritionRate:
-          regularAttritionRate,
-
-        /*
-          Alias temporal.
-        */
-
-        eligible:
-          previousRegular.length,
-      },
-
-      /*
-        Compatibilidad con App.jsx anterior.
-      */
-
-      newStudents: {
-        previous:
-          previousLevel1.length,
-
-        eligible:
-          previousLevel1.length,
-
-        lost:
-          level1Lost.length,
-
-        retained:
-          Math.max(
-            previousLevel1.length -
-            level1Lost.length,
-            0
-          ),
-
-        attritionRate:
-          level1AttritionRate,
-      },
-    },
-
-
-    /* -----------------------------------------------------
-       LISTAS
-       ----------------------------------------------------- */
-
-    lists: {
-      /*
-        Graduación
-      */
-
-      terminalPrevious,
-
-      graduates,
-
-      terminalReappeared,
-
-      /*
-        Continuidad
-      */
-
-      shouldContinue,
-
-      reenrolledPrevious,
-
-      reenrolledCurrent,
-
-      reenrolledPairs,
-
-      lost,
-
-      /*
-        Fuga L01 vs regulares
-      */
-
-      previousLevel1,
-
-      level1Lost,
-
-      previousRegular,
-
-      regularLost,
-
-      /*
-        Movimientos del período nuevo
-      */
-
-      notPresentPrevious,
-
-      currentLevel1,
-
-      currentLevel1NotPresentPrevious,
-
-      notPresentPreviousLevel2Plus,
-
-      /*
-        Frecuencia
-      */
-
-      frequencyChanges,
-
-      unresolvedFrequencyPairs,
-
-      /*
-        Categorías
-      */
-
-      ninosJovenes:
-        categoryTransitions
-          .ninosJovenes,
-
-      ninosAdultos:
-        categoryTransitions
-          .ninosAdultos,
-
-      jovenesAdultos:
-        categoryTransitions
-          .jovenesAdultos,
-
-      otherCategoryTransitions:
-        categoryTransitions
-          .otherTransitions,
-
-      allCategoryTransitions:
-        categoryTransitions
-          .all,
-
-      /*
-        =====================================================
-        ALIASES TEMPORALES
-        =====================================================
-      */
-
-      eligible:
-        shouldContinue,
-
-      externalEntrants:
-        notPresentPrevious,
-
-      newLevel1:
-        currentLevel1,
-
-      externalLevel2Plus:
-        notPresentPreviousLevel2Plus,
-
-      graduatesPresentAgain:
-        terminalReappeared,
-
-      newLost:
-        level1Lost,
-    },
-
-
-    /* -----------------------------------------------------
-       ANALÍTICA
-       ----------------------------------------------------- */
-
-    analytics: {
-      dropoutByLevel,
-
-      dropoutBySchedule,
-
-      dropoutByFrequency,
-
-      topScheduleByVolume,
-
-      topScheduleByRate,
-
-      density,
-
-      categoryTransitionsAvailable,
-
-      categoryTransitionsTotal:
-        categoryTransitions.total,
-
-      categoryTransitions: {
-        ninosJovenes:
-          categoryTransitions
-            .ninosJovenes
-            .length,
-
-        ninosAdultos:
-          categoryTransitions
-            .ninosAdultos
-            .length,
-
-        jovenesAdultos:
-          categoryTransitions
-            .jovenesAdultos
-            .length,
-
-        other:
-          categoryTransitions
-            .otherTransitions
-            .length,
-      },
-    },
-
-
-    /* -----------------------------------------------------
-       CALIDAD DE DATOS
-       ----------------------------------------------------- */
-
-    quality: {
-      previous:
-        oldQuality,
-
-      current:
-        newQuality,
-
-      criticalErrors,
-
-      warnings,
-
-      frequencyCorrections:
-        frequencyCorrectionCount,
-
-      unresolvedFrequencyComparisons:
-        unresolvedFrequencyPairs.length,
-
-      terminalReappeared:
-        terminalReappeared.length,
-
-      reconciliation: {
-        previous:
-          reconciliationPrevious,
-
-        terminal:
-          reconciliationTerminal,
-
-        continuity:
-          reconciliationContinuity,
-
-        current:
-          reconciliationCurrent,
-
-        /*
-          Alias temporal para tests anteriores.
-        */
-
-        eligible:
-          reconciliationContinuity,
-
-        ok:
-          reconciliationOk,
-      },
-    },
-  };
+  return students;
 }
 
 
 /* =========================================================
-   VALIDACIÓN DE MÉTRICAS ESPERADAS
+   EXPORTACIONES PARA APP.JSX
    ========================================================= */
 
-export function validateExpectedMetrics(
-  analysis,
-  expected = {}
-) {
-  if (!analysis) {
-    throw new Error(
-      "No se recibió un análisis de continuidad."
-    );
-  }
+/*
+  App.jsx utiliza:
 
-  const actual = {
-    previous:
-      analysis.totals
-        ?.previous,
+  import {
+    parseCevazPdf,
+    __HORARIO_BLOQUES__,
+  } from "./utils/parseCevazPdf";
 
-    current:
-      analysis.totals
-        ?.current,
+  parseCevazPdf ya está exportado directamente arriba.
+*/
 
-    shouldContinue:
-      analysis.totals
-        ?.shouldContinue,
-
-    reenrolled:
-      analysis.totals
-        ?.reenrolled,
-
-    lost:
-      analysis.totals
-        ?.lost,
-
-    terminalPrevious:
-      analysis.totals
-        ?.terminalPrevious,
-
-    graduates:
-      analysis.totals
-        ?.graduates,
-
-    terminalReappeared:
-      analysis.totals
-        ?.terminalReappeared,
-
-    notPresentPrevious:
-      analysis.totals
-        ?.notPresentPrevious,
-
-    currentLevel1:
-      analysis.totals
-        ?.currentLevel1,
-
-    currentLevel1NotPresentPrevious:
-      analysis.totals
-        ?.currentLevel1NotPresentPrevious,
-
-    notPresentPreviousLevel2Plus:
-      analysis.totals
-        ?.notPresentPreviousLevel2Plus,
-
-    frequencyChanges:
-      analysis.totals
-        ?.frequencyChanges,
-
-    categoryTransitions:
-      analysis.totals
-        ?.categoryTransitions,
-
-    retention:
-      analysis.rates
-        ?.retention,
-
-    attrition:
-      analysis.rates
-        ?.attrition,
-
-    level1Previous:
-      analysis.segmentation
-        ?.level1
-        ?.previous,
-
-    level1Lost:
-      analysis.segmentation
-        ?.level1
-        ?.lost,
-
-    level1Attrition:
-      analysis.segmentation
-        ?.level1
-        ?.attritionRate,
-
-    regularPrevious:
-      analysis.segmentation
-        ?.regularStudents
-        ?.previous,
-
-    regularLost:
-      analysis.segmentation
-        ?.regularStudents
-        ?.lost,
-
-    regularAttrition:
-      analysis.segmentation
-        ?.regularStudents
-        ?.attritionRate,
-
-    averageDensity:
-      analysis.analytics
-        ?.density
-        ?.average,
-
-    sections:
-      analysis.analytics
-        ?.density
-        ?.sections,
-
-    /*
-      =====================================================
-      ALIASES PARA TESTS ANTERIORES
-      =====================================================
-    */
-
-    eligible:
-      analysis.totals
-        ?.shouldContinue,
-
-    newLevel1:
-      analysis.totals
-        ?.currentLevel1,
-
-    externalLevel2Plus:
-      analysis.totals
-        ?.notPresentPreviousLevel2Plus,
-
-    newEligible:
-      analysis.segmentation
-        ?.level1
-        ?.previous,
-
-    newLost:
-      analysis.segmentation
-        ?.level1
-        ?.lost,
-
-    newAttrition:
-      analysis.segmentation
-        ?.level1
-        ?.attritionRate,
-
-    regularEligible:
-      analysis.segmentation
-        ?.regularStudents
-        ?.previous,
-  };
-
-  const mismatches =
-    [];
-
-  for (
-    const [
-      key,
-      expectedValue,
-    ]
-    of Object.entries(
-      expected
-    )
-  ) {
-    if (
-      expectedValue ===
-      undefined
-    ) {
-      continue;
-    }
-
-    const actualValue =
-      actual[key];
-
-    if (
-      actualValue !==
-      expectedValue
-    ) {
-      mismatches.push({
-        metric:
-          key,
-
-        expected:
-          expectedValue,
-
-        actual:
-          actualValue,
-      });
-    }
-  }
-
-  return {
-    ok:
-      mismatches.length ===
-      0,
-
-    actual,
-
-    expected,
-
-    mismatches,
-  };
-}
+export const __HORARIO_BLOQUES__ =
+  HORARIO_BLOQUES;
 
 
 /* =========================================================
-   ASSERT
+   EXPORTACIONES PARA TESTS
    ========================================================= */
 
-export function assertExpectedMetrics(
-  analysis,
-  expected = {}
-) {
-  const result =
-    validateExpectedMetrics(
-      analysis,
-      expected
-    );
+export const __parseHelpers__ = {
+  normalizePdfLevel,
 
-  if (!result.ok) {
-    const details =
-      result.mismatches
-        .map(
-          (item) =>
-            `${item.metric}: esperado=${item.expected}, recibido=${item.actual}`
-        )
-        .join(" | ");
+  normalizePdfCategory,
 
-    throw new Error(
-      `Validación de indicadores fallida. ${details}`
-    );
-  }
+  normalizePdfSchedule,
 
-  return true;
-}
+  normalizePdfScheduleDetailed,
+
+  extractTrailingPhone,
+
+  extractEmailAndName,
+};
