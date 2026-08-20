@@ -1,8 +1,15 @@
-name: Deploy to GitHub Pages
+name: Validar y desplegar Dashboard de Continuidad
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,27 +17,217 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+
+  # ==========================================================
+  # 1. VALIDACIÓN
+  # ==========================================================
+
+  validate:
+    name: Validar aplicación
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      # -------------------------------------------------------
+      # Descargar repositorio
+      # -------------------------------------------------------
+
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # Configurar Node.js
+      # -------------------------------------------------------
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+
+      # -------------------------------------------------------
+      # Mostrar versiones
+      # -------------------------------------------------------
+
+      - name: Mostrar versiones del entorno
+        run: |
+          echo "Node:"
+          node --version
+
+          echo "NPM:"
+          npm --version
+
+      # -------------------------------------------------------
+      # Instalar dependencias
+      #
+      # Se usa npm install por ahora porque estamos realizando
+      # cambios directamente desde GitHub y package-lock.json
+      # podría no haberse actualizado todavía.
+      # -------------------------------------------------------
+
+      - name: Instalar dependencias
+        run: npm install
+
+      # -------------------------------------------------------
+      # Ejecutar pruebas automáticas
+      #
+      # IMPORTANTE:
+      #
+      # --passWithNoTests se usa TEMPORALMENTE porque todavía
+      # no hemos creado los archivos de pruebas.
+      #
+      # Cuando creemos las pruebas de continuidad, cualquier
+      # prueba que falle detendrá igualmente este paso.
+      # -------------------------------------------------------
+
+      - name: Ejecutar pruebas automáticas
+        run: npm run test -- --passWithNoTests
+
+      # -------------------------------------------------------
+      # Compilar aplicación
+      #
+      # Si existe un error de JavaScript, JSX, imports,
+      # dependencias o configuración de Vite, el workflow
+      # se detendrá aquí.
+      # -------------------------------------------------------
+
+      - name: Compilar aplicación
+        run: npm run build
+
+      # -------------------------------------------------------
+      # Verificar que Vite produjo /dist
+      # -------------------------------------------------------
+
+      - name: Verificar resultado de compilación
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "ERROR: No existe la carpeta dist."
+            exit 1
+          fi
+
+          if [ ! -f "dist/index.html" ]; then
+            echo "ERROR: No existe dist/index.html."
+            exit 1
+          fi
+
+          echo "Compilación validada correctamente."
+
+  # ==========================================================
+  # 2. BUILD PARA GITHUB PAGES
+  # ==========================================================
+
+  build:
+    name: Preparar GitHub Pages
+    needs:
+      - validate
+
+    /*
+      En Pull Requests solamente queremos validar.
+      No debemos publicar.
+
+      El deploy se prepara únicamente desde main
+      o cuando ejecutamos manualmente el workflow.
+    */
+
+    if: >
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # -------------------------------------------------------
+      # Descargar repositorio
+      # -------------------------------------------------------
+
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # Configurar Node.js
+      # -------------------------------------------------------
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
-          path: dist
+          node-version: 20
+
+      # -------------------------------------------------------
+      # Instalar dependencias
+      # -------------------------------------------------------
+
+      - name: Instalar dependencias
+        run: npm install
+
+      # -------------------------------------------------------
+      # Configurar GitHub Pages
+      # -------------------------------------------------------
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      # -------------------------------------------------------
+      # Crear versión de producción
+      # -------------------------------------------------------
+
+      - name: Compilar versión de producción
+        run: npm run build
+
+      # -------------------------------------------------------
+      # Verificación adicional
+      # -------------------------------------------------------
+
+      - name: Verificar archivos de producción
+        run: |
+          echo "Contenido de dist:"
+          ls -la dist
+
+          if [ ! -f "dist/index.html" ]; then
+            echo "ERROR: dist/index.html no fue generado."
+            exit 1
+          fi
+
+          echo "Artefacto preparado correctamente."
+
+      # -------------------------------------------------------
+      # Subir artefacto para Pages
+      # -------------------------------------------------------
+
+      - name: Subir artefacto de GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  # ==========================================================
+  # 3. DEPLOY
+  # ==========================================================
 
   deploy:
-    needs: build
+    name: Publicar aplicación
+
+    needs:
+      - build
+
+    if: >
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch'
+
     runs-on: ubuntu-latest
+
     environment:
       name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - uses: actions/deploy-pages@v4
+
+      # -------------------------------------------------------
+      # Publicar
+      # -------------------------------------------------------
+
+      - name: Desplegar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
