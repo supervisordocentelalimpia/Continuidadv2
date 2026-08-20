@@ -1,10 +1,18 @@
 // src/App.jsx
 
-import React, { useMemo, useRef, useState } from "react";
+import React, {
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import * as XLSX from "xlsx";
+
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
+
 import * as Docx from "docx";
+
 import { saveAs } from "file-saver";
 
 import {
@@ -46,6 +54,8 @@ import {
   Info,
   ShieldCheck,
   Database,
+  ArrowRight,
+  Download,
 } from "lucide-react";
 
 import {
@@ -59,33 +69,61 @@ import {
   normalizeCategory,
   normalizeLevel,
   normalizeScheduleBlock,
-  getTopDropoutScheduleByVolume,
-  getTopDropoutScheduleByRate,
   CONTINUIDAD_RULES_VERSION,
 } from "./utils/continuidad";
+
+import {
+  FREQUENCIES,
+  FREQUENCY_ORDER,
+} from "./utils/frecuencia";
+
 
 /* =========================================================
    PDFMAKE
    ========================================================= */
 
-if (pdfFonts && pdfFonts.pdfMake) {
-  pdfMake.vfs = pdfFonts.pdfMake.vfs;
+if (
+  pdfFonts?.pdfMake?.vfs
+) {
+  pdfMake.vfs =
+    pdfFonts.pdfMake.vfs;
+} else if (
+  pdfFonts?.vfs
+) {
+  pdfMake.vfs =
+    pdfFonts.vfs;
 }
+
 
 /* =========================================================
    CONSTANTES VISUALES
    ========================================================= */
 
+const EMPTY_ARRAY = [];
+
 const FRECUENCIA_COLORS = {
-  "MARTES Y JUEVES": "#7c3aed",
-  "MIERCOLES Y VIERNES": "#f97316",
-  SABATINO: "#2563eb",
-  LUNES: "#16a34a",
-  "INTENSIVO A": "#c27ba0",
-  "INTENSIVO B": "#ead1dc",
-  INTENSIVO: "#a855f7",
-  "N/A": "#94a3b8",
+  [FREQUENCIES.MARTES_JUEVES]:
+    "#7c3aed",
+
+  [FREQUENCIES.MIERCOLES_VIERNES]:
+    "#f97316",
+
+  [FREQUENCIES.LUNES]:
+    "#16a34a",
+
+  [FREQUENCIES.SABATINO]:
+    "#2563eb",
+
+  [FREQUENCIES.INTENSIVO]:
+    "#a855f7",
+
+  [FREQUENCIES.SEMI_INTENSIVO]:
+    "#0891b2",
+
+  [FREQUENCIES.NA]:
+    "#94a3b8",
 };
+
 
 const HORARIO_COLORS = [
   "#2563eb",
@@ -100,16 +138,45 @@ const HORARIO_COLORS = [
   "#64748b",
 ];
 
-const FRECUENCIA_ORDER = [
-  "MARTES Y JUEVES",
-  "MIERCOLES Y VIERNES",
-  "LUNES",
-  "SABATINO",
-  "INTENSIVO A",
-  "INTENSIVO B",
-  "INTENSIVO",
-  "N/A",
-];
+
+const TABLE_VIEW_LABELS = {
+  desercion:
+    "Deserciones / Fugas",
+
+  nuevosL01:
+    "Ingresos Nivel 01",
+
+  noPresentesL02:
+    "Estudiantes no presentes en el período anterior L02+",
+
+  cambios:
+    "Cambios de Frecuencia",
+
+  graduados:
+    "Graduandos",
+
+  transNinosJovenes:
+    "Transición: Niños → Jóvenes",
+
+  transNinosAdultos:
+    "Transición: Niños → Adultos",
+
+  transJovenesAdultos:
+    "Transición: Jóvenes → Adultos",
+};
+
+
+const EXPORT_SCOPE_LABELS = {
+  combined:
+    "Indicadores + lista actual",
+
+  indicators:
+    "Solo indicadores",
+
+  list:
+    "Solo lista actual",
+};
+
 
 /* =========================================================
    ESTADÍSTICAS VACÍAS
@@ -119,7 +186,7 @@ const createEmptyStats = () => ({
   oldTotal: 0,
   newTotal: 0,
 
-  eligibleOld: 0,
+  shouldContinue: 0,
 
   reenrolled: 0,
   reenrolledPct: 0,
@@ -127,69 +194,113 @@ const createEmptyStats = () => ({
   lost: 0,
   lostPct: 0,
 
-  nuevosEligible: 0,
-  regularesEligible: 0,
+  previousLevel1: 0,
+  regularPrevious: 0,
 
-  nuevosLost: 0,
-  nuevosLostPct: 0,
+  level1Lost: 0,
+  level1LostPct: 0,
 
-  regularesLost: 0,
-  regularesLostPct: 0,
+  regularLost: 0,
+  regularLostPct: 0,
 
   transNinosJovenes: 0,
+  transNinosAdultos: 0,
   transJovenesAdultos: 0,
-  categoryTransitionsAvailable: false,
+
+  categoryTransitionsAvailable:
+    false,
 
   avgDensity: 0,
   activeSections: 0,
 
-  topHorarioFugas: "N/A",
+  topHorarioFugas:
+    "N/A",
+
   topHorarioFugasCount: 0,
-  topHorarioFugasEligible: 0,
+  topHorarioFugasPrevious: 0,
   topHorarioFugasRate: 0,
 
-  topHorarioRate: "N/A",
+  topHorarioRate:
+    "N/A",
+
   topHorarioRatePct: 0,
   topHorarioRateLost: 0,
-  topHorarioRateEligible: 0,
+  topHorarioRatePrevious: 0,
 
   graduados: 0,
-  graduadosPresentesNuevamente: 0,
 
-  nuevosL01: 0,
-  nuevosNivelacion: 0,
-  nuevosExternosTotal: 0,
+  terminalPrevious: 0,
+
+  terminalReappeared: 0,
+
+  currentLevel1: 0,
+
+  notPresentPrevious:
+    0,
+
+  notPresentPreviousL02Plus:
+    0,
 
   cambiosFreq: 0,
 
-  reconciliationOk: false,
+  reconciliationOk:
+    false,
 });
 
+
 /* =========================================================
-   ARCHIVOS
+   UTILIDADES DE ARCHIVOS
    ========================================================= */
 
-const fileKey = (file) =>
+const fileKey = (
+  file
+) =>
   `${file.name}__${file.size}__${file.lastModified}`;
 
-const extractDateKeyFromName = (name = "") => {
-  const upper = String(name || "").toUpperCase();
+
+const extractDateKeyFromName = (
+  name = ""
+) => {
+  const upper =
+    String(
+      name || ""
+    ).toUpperCase();
 
   /*
     2026-08-11
     2026_08_11
     2026/08/11
   */
-  let match = upper.match(
-    /(20\d{2})[\/_\-](\d{1,2})[\/_\-](\d{1,2})/
-  );
+
+  let match =
+    upper.match(
+      /(20\d{2})[\/_\-](\d{1,2})[\/_\-](\d{1,2})/
+    );
 
   if (match) {
-    const year = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10);
-    const day = parseInt(match[3], 10);
+    const year =
+      parseInt(
+        match[1],
+        10
+      );
 
-    return year * 10000 + month * 100 + day;
+    const month =
+      parseInt(
+        match[2],
+        10
+      );
+
+    const day =
+      parseInt(
+        match[3],
+        10
+      );
+
+    return (
+      year * 10000 +
+      month * 100 +
+      day
+    );
   }
 
   /*
@@ -198,13 +309,24 @@ const extractDateKeyFromName = (name = "") => {
 
     Se interpreta como DD_MM.
   */
-  match = upper.match(
-    /(^|[^0-9])(\d{1,2})[\/_\-](\d{1,2})([^0-9]|$)/
-  );
+
+  match =
+    upper.match(
+      /(^|[^0-9])(\d{1,2})[\/_\-](\d{1,2})([^0-9]|$)/
+    );
 
   if (match) {
-    const day = parseInt(match[2], 10);
-    const month = parseInt(match[3], 10);
+    const day =
+      parseInt(
+        match[2],
+        10
+      );
+
+    const month =
+      parseInt(
+        match[3],
+        10
+      );
 
     if (
       day >= 1 &&
@@ -212,174 +334,153 @@ const extractDateKeyFromName = (name = "") => {
       month >= 1 &&
       month <= 12
     ) {
-      return month * 100 + day;
+      return (
+        month * 100 +
+        day
+      );
     }
   }
 
   return null;
 };
 
-const sortFilesSmart = (files = []) => {
-  const metadata = files.map((file, index) => {
-    const dateKey = extractDateKeyFromName(file.name);
 
-    return {
-      file,
-      index,
-      hasDate: dateKey !== null,
-      dateKey: dateKey ?? Number.POSITIVE_INFINITY,
-      name: String(file.name || "").toUpperCase(),
-    };
-  });
+const sortFilesSmart = (
+  files = []
+) => {
+  const metadata =
+    files.map(
+      (
+        file,
+        index
+      ) => {
+        const dateKey =
+          extractDateKeyFromName(
+            file.name
+          );
 
-  metadata.sort((a, b) => {
-    if (a.hasDate && b.hasDate) {
-      if (a.dateKey !== b.dateKey) {
-        return a.dateKey - b.dateKey;
+        return {
+          file,
+
+          index,
+
+          hasDate:
+            dateKey !== null,
+
+          dateKey:
+            dateKey ??
+            Number.POSITIVE_INFINITY,
+
+          name:
+            String(
+              file.name || ""
+            ).toUpperCase(),
+        };
+      }
+    );
+
+  metadata.sort(
+    (a, b) => {
+      if (
+        a.hasDate &&
+        b.hasDate
+      ) {
+        if (
+          a.dateKey !==
+          b.dateKey
+        ) {
+          return (
+            a.dateKey -
+            b.dateKey
+          );
+        }
+
+        if (
+          a.name !==
+          b.name
+        ) {
+          return a.name.localeCompare(
+            b.name
+          );
+        }
+
+        return (
+          a.index -
+          b.index
+        );
       }
 
-      if (a.name !== b.name) {
-        return a.name.localeCompare(b.name);
+      if (
+        a.hasDate !==
+        b.hasDate
+      ) {
+        return a.hasDate
+          ? -1
+          : 1;
       }
 
-      return a.index - b.index;
+      if (
+        a.name !==
+        b.name
+      ) {
+        return a.name.localeCompare(
+          b.name
+        );
+      }
+
+      return (
+        a.index -
+        b.index
+      );
     }
+  );
 
-    if (a.hasDate !== b.hasDate) {
-      return a.hasDate ? -1 : 1;
-    }
-
-    if (a.name !== b.name) {
-      return a.name.localeCompare(b.name);
-    }
-
-    return a.index - b.index;
-  });
-
-  return metadata.map((item) => item.file);
+  return metadata.map(
+    (item) =>
+      item.file
+  );
 };
 
-/* =========================================================
-   FRECUENCIA EXTRAÍDA DEL HORARIO
-   ========================================================= */
-
-const normalizeFrecuenciaBase = (scheduleRaw = "") => {
-  if (!scheduleRaw) {
-    return "N/A";
-  }
-
-  const leftSide = scheduleRaw.includes("/")
-    ? scheduleRaw.split("/")[0].trim()
-    : scheduleRaw.trim();
-
-  const upper = leftSide
-    .toUpperCase()
-    .replace(/\s+/g, " ")
-    .replace(/&/g, "Y")
-    .trim();
-
-  if (!upper) {
-    return "N/A";
-  }
-
-  if (
-    upper.includes("MARTES") &&
-    upper.includes("JUEVES")
-  ) {
-    return "MARTES Y JUEVES";
-  }
-
-  if (
-    (upper.includes("MIERCOLES") ||
-      upper.includes("MIÉRCOLES")) &&
-    upper.includes("VIERNES")
-  ) {
-    return "MIERCOLES Y VIERNES";
-  }
-
-  if (
-    upper.includes("SABADO") ||
-    upper.includes("SÁBADO") ||
-    upper.includes("SABAT")
-  ) {
-    return "SABATINO";
-  }
-
-  if (
-    upper.includes("LUNES") &&
-    !upper.includes(" A ")
-  ) {
-    return "LUNES";
-  }
-
-  if (
-    upper.includes("TUESDAY") &&
-    upper.includes("THURSDAY")
-  ) {
-    return "MARTES Y JUEVES";
-  }
-
-  if (
-    upper.includes("WEDNESDAY") &&
-    upper.includes("FRIDAY")
-  ) {
-    return "MIERCOLES Y VIERNES";
-  }
-
-  if (upper.includes("SATURDAY")) {
-    return "SABATINO";
-  }
-
-  if (
-    upper.includes("MONDAY") &&
-    !upper.includes(" TO ")
-  ) {
-    return "LUNES";
-  }
-
-  /*
-    TUESDAY TO FRIDAY
-    MARTES A VIERNES
-  */
-  if (
-    upper.includes(" TO ") ||
-    /\sA\s/.test(upper)
-  ) {
-    return "INTENSIVO";
-  }
-
-  return leftSide || "N/A";
-};
 
 /* =========================================================
-   PARSEO DE MÚLTIPLES PDFs
+   PARSEO DE VARIOS PDFs
    ========================================================= */
 
 const parseMany = async (
-  files,
-  {
-    intensivoLabel = "INTENSIVO",
-  } = {}
+  files
 ) => {
-  const orderedFiles = sortFilesSmart(files);
+  const orderedFiles =
+    sortFilesSmart(
+      files
+    );
+
+  const all = [];
 
   const failed = [];
-  const all = [];
 
   for (
     let rank = 0;
-    rank < orderedFiles.length;
+    rank <
+    orderedFiles.length;
     rank++
   ) {
-    const file = orderedFiles[rank];
+    const file =
+      orderedFiles[rank];
 
     let list = [];
 
     try {
-      list = await parseCevazPdf(file);
+      list =
+        await parseCevazPdf(
+          file
+        );
 
-      if (!list?.length) {
-        failed.push(file.name);
+      if (
+        !list?.length
+      ) {
+        failed.push(
+          file.name
+        );
       }
     } catch (error) {
       console.error(
@@ -387,78 +488,75 @@ const parseMany = async (
         error
       );
 
-      failed.push(file.name);
-      list = [];
+      failed.push(
+        file.name
+      );
+
+      continue;
     }
 
-    for (const original of list || []) {
+    for (
+      const original
+      of list || []
+    ) {
       const rawId =
-        original?.id !== undefined &&
-        original?.id !== null
-          ? String(original.id).trim()
+        original?.id !==
+          undefined &&
+        original?.id !==
+          null
+          ? String(
+              original.id
+            ).trim()
           : "";
-
-      const idNorm =
-        normalizeStudentId(rawId);
-
-      const category =
-        normalizeCategory(
-          original.category || ""
-        );
-
-      const levelNorm =
-        normalizeLevel(
-          original.levelNorm ||
-            original.level ||
-            ""
-        );
-
-      const frequencyRaw =
-        original.schedule ||
-        original.frequencyRaw ||
-        "";
-
-      const frequencyBase =
-        normalizeFrecuenciaBase(
-          frequencyRaw
-        );
-
-      const frequencyNorm =
-        frequencyBase === "INTENSIVO"
-          ? intensivoLabel
-          : frequencyBase;
-
-      const scheduleBlock =
-        normalizeScheduleBlock(
-          original.scheduleBlock
-        );
 
       all.push({
         ...original,
 
-        id: rawId,
-        idOriginal: rawId,
-        idNorm,
+        id:
+          rawId,
 
-        category,
-        levelNorm,
+        idOriginal:
+          rawId,
 
-        frequencyRaw,
-        frequencyBase,
-        frequencyNorm,
+        idNorm:
+          normalizeStudentId(
+            rawId
+          ),
 
-        scheduleBlock,
+        category:
+          normalizeCategory(
+            original.category ||
+              ""
+          ),
 
-        __fileRank: rank,
-        __fileName: file.name,
+        levelNorm:
+          normalizeLevel(
+            original.levelNorm ||
+              original.level ||
+              ""
+          ),
+
+        frequencyNorm:
+          original.frequencyNorm ||
+          FREQUENCIES.NA,
+
+        scheduleBlock:
+          normalizeScheduleBlock(
+            original.scheduleBlock
+          ),
+
+        __fileRank:
+          rank,
+
+        __fileName:
+          file.name,
       });
     }
   }
 
   if (!all.length) {
     throw new Error(
-      "No se pudo extraer ningún alumno de los PDFs seleccionados. " +
-        "Verifica que los archivos contengan texto seleccionable y no sean únicamente imágenes escaneadas."
+      "No se pudo extraer ningún estudiante de los PDFs seleccionados."
     );
   }
 
@@ -468,35 +566,55 @@ const parseMany = async (
   };
 };
 
+
 /* =========================================================
-   VALIDACIONES DE DATOS EXTRAÍDOS
+   VALIDACIÓN DE DATOS DEL PARSER
    ========================================================= */
 
-const phoneDigits = (phone = "") =>
-  String(phone ?? "").replace(/\D/g, "");
+const phoneDigits = (
+  phone = ""
+) =>
+  String(
+    phone ?? ""
+  ).replace(
+    /\D/g,
+    ""
+  );
 
-const isLikelyValidEmail = (email = "") => {
+
+const isLikelyValidEmail = (
+  email = ""
+) => {
   if (!email) {
     return true;
   }
 
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(
-    String(email).trim()
+    String(
+      email
+    ).trim()
   );
 };
 
-const isLikelyValidPhone = (phone = "") => {
+
+const isLikelyValidPhone = (
+  phone = ""
+) => {
   if (!phone) {
     return true;
   }
 
-  const digits = phoneDigits(phone);
+  const digits =
+    phoneDigits(
+      phone
+    );
 
   return (
     digits.length >= 7 &&
     digits.length <= 15
   );
 };
+
 
 const evaluateParsedDataQuality = ({
   oldAll,
@@ -505,9 +623,12 @@ const evaluateParsedDataQuality = ({
   failedNew,
 }) => {
   const critical = [];
+
   const warnings = [];
 
-  if (failedOld?.length) {
+  if (
+    failedOld?.length
+  ) {
     critical.push(
       `Período anterior: no se pudieron procesar ${failedOld.length} archivo(s): ${failedOld.join(
         ", "
@@ -515,164 +636,340 @@ const evaluateParsedDataQuality = ({
     );
   }
 
-  if (failedNew?.length) {
+  if (
+    failedNew?.length
+  ) {
     critical.push(
-      `Período actual: no se pudieron procesar ${failedNew.length} archivo(s): ${failedNew.join(
+      `Período nuevo: no se pudieron procesar ${failedNew.length} archivo(s): ${failedNew.join(
         ", "
       )}`
     );
   }
 
-  const missingIdOld = oldAll.filter(
-    (student) => !student.idNorm
-  );
 
-  const missingIdNew = newAll.filter(
-    (student) => !student.idNorm
-  );
+  const missingIdOld =
+    oldAll.filter(
+      (student) =>
+        !student.idNorm
+    );
 
-  if (missingIdOld.length) {
+  const missingIdNew =
+    newAll.filter(
+      (student) =>
+        !student.idNorm
+    );
+
+
+  if (
+    missingIdOld.length
+  ) {
     critical.push(
-      `Período anterior: ${missingIdOld.length} registro(s) sin cédula/ID utilizable.`
+      `Período anterior: ${missingIdOld.length} registro(s) sin identificación utilizable.`
     );
   }
 
-  if (missingIdNew.length) {
+  if (
+    missingIdNew.length
+  ) {
     critical.push(
-      `Período actual: ${missingIdNew.length} registro(s) sin cédula/ID utilizable.`
+      `Período nuevo: ${missingIdNew.length} registro(s) sin identificación utilizable.`
     );
   }
 
-  const missingLevelOld = oldAll.filter(
-    (student) =>
-      !student.levelNorm ||
-      student.levelNorm === "N/A"
-  );
 
-  const missingLevelNew = newAll.filter(
-    (student) =>
-      !student.levelNorm ||
-      student.levelNorm === "N/A"
-  );
+  const missingLevelOld =
+    oldAll.filter(
+      (student) =>
+        !student.levelNorm ||
+        student.levelNorm ===
+          "N/A"
+    );
 
-  if (missingLevelOld.length) {
+  const missingLevelNew =
+    newAll.filter(
+      (student) =>
+        !student.levelNorm ||
+        student.levelNorm ===
+          "N/A"
+    );
+
+
+  if (
+    missingLevelOld.length
+  ) {
     critical.push(
-      `Período anterior: ${missingLevelOld.length} estudiante(s) sin nivel válido.`
+      `Período anterior: ${missingLevelOld.length} estudiante(s) sin nivel reconocido.`
     );
   }
 
-  if (missingLevelNew.length) {
+  if (
+    missingLevelNew.length
+  ) {
     critical.push(
-      `Período actual: ${missingLevelNew.length} estudiante(s) sin nivel válido.`
+      `Período nuevo: ${missingLevelNew.length} estudiante(s) sin nivel reconocido.`
     );
   }
 
-  const missingCategoryOld = oldAll.filter(
-    (student) =>
-      !student.category ||
-      student.category === "N/A"
-  );
 
-  const missingCategoryNew = newAll.filter(
-    (student) =>
-      !student.category ||
-      student.category === "N/A"
-  );
+  const missingCategoryOld =
+    oldAll.filter(
+      (student) =>
+        !student.category ||
+        student.category ===
+          "N/A"
+    );
 
-  if (missingCategoryOld.length) {
+  const missingCategoryNew =
+    newAll.filter(
+      (student) =>
+        !student.category ||
+        student.category ===
+          "N/A"
+    );
+
+
+  if (
+    missingCategoryOld.length
+  ) {
     critical.push(
-      `Período anterior: ${missingCategoryOld.length} estudiante(s) sin categoría válida.`
+      `Período anterior: ${missingCategoryOld.length} estudiante(s) sin categoría reconocida.`
     );
   }
 
-  if (missingCategoryNew.length) {
+  if (
+    missingCategoryNew.length
+  ) {
     critical.push(
-      `Período actual: ${missingCategoryNew.length} estudiante(s) sin categoría válida.`
+      `Período nuevo: ${missingCategoryNew.length} estudiante(s) sin categoría reconocida.`
     );
   }
 
-  const missingScheduleOld = oldAll.filter(
-    (student) =>
-      !student.scheduleBlock ||
-      student.scheduleBlock === "N/A"
-  );
 
-  const missingScheduleNew = newAll.filter(
-    (student) =>
-      !student.scheduleBlock ||
-      student.scheduleBlock === "N/A"
-  );
+  const unknownFreqOld =
+    oldAll.filter(
+      (student) =>
+        !student.frequencyNorm ||
+        student.frequencyNorm ===
+          FREQUENCIES.NA
+    );
 
-  if (missingScheduleOld.length) {
+  const unknownFreqNew =
+    newAll.filter(
+      (student) =>
+        !student.frequencyNorm ||
+        student.frequencyNorm ===
+          FREQUENCIES.NA
+    );
+
+
+  if (
+    unknownFreqOld.length
+  ) {
     warnings.push(
-      `Período anterior: ${missingScheduleOld.length} registro(s) sin bloque horario reconocido.`
+      `Período anterior: ${unknownFreqOld.length} registro(s) con frecuencia no reconocida.`
     );
   }
 
-  if (missingScheduleNew.length) {
+  if (
+    unknownFreqNew.length
+  ) {
     warnings.push(
-      `Período actual: ${missingScheduleNew.length} registro(s) sin bloque horario reconocido.`
+      `Período nuevo: ${unknownFreqNew.length} registro(s) con frecuencia no reconocida.`
     );
   }
 
-  const badEmailOld = oldAll.filter(
-    (student) =>
-      student.email &&
-      !isLikelyValidEmail(student.email)
-  );
 
-  const badEmailNew = newAll.filter(
-    (student) =>
-      student.email &&
-      !isLikelyValidEmail(student.email)
-  );
+  const scheduleReviewOld =
+    oldAll.filter(
+      (student) =>
+        student.scheduleNeedsReview
+    );
 
-  if (badEmailOld.length) {
+  const scheduleReviewNew =
+    newAll.filter(
+      (student) =>
+        student.scheduleNeedsReview
+    );
+
+
+  if (
+    scheduleReviewOld.length
+  ) {
+    warnings.push(
+      `Período anterior: ${scheduleReviewOld.length} registro(s) tienen horario para revisión.`
+    );
+  }
+
+  if (
+    scheduleReviewNew.length
+  ) {
+    warnings.push(
+      `Período nuevo: ${scheduleReviewNew.length} registro(s) tienen horario para revisión.`
+    );
+  }
+
+
+  const inferredScheduleOld =
+    oldAll.filter(
+      (student) =>
+        student.scheduleStartMeridiemInferred
+    );
+
+  const inferredScheduleNew =
+    newAll.filter(
+      (student) =>
+        student.scheduleStartMeridiemInferred
+    );
+
+
+  if (
+    inferredScheduleOld.length
+  ) {
+    warnings.push(
+      `Período anterior: en ${inferredScheduleOld.length} registro(s) fue necesario inferir AM/PM en la hora inicial.`
+    );
+  }
+
+  if (
+    inferredScheduleNew.length
+  ) {
+    warnings.push(
+      `Período nuevo: en ${inferredScheduleNew.length} registro(s) fue necesario inferir AM/PM en la hora inicial.`
+    );
+  }
+
+
+  const correctionsOld =
+    oldAll.reduce(
+      (
+        total,
+        student
+      ) =>
+        total +
+        (
+          student
+            .frequencyCorrections
+            ?.length || 0
+        ),
+      0
+    );
+
+  const correctionsNew =
+    newAll.reduce(
+      (
+        total,
+        student
+      ) =>
+        total +
+        (
+          student
+            .frequencyCorrections
+            ?.length || 0
+        ),
+      0
+    );
+
+
+  if (
+    correctionsOld +
+      correctionsNew >
+    0
+  ) {
+    warnings.push(
+      `Se corrigieron automáticamente ${correctionsOld + correctionsNew} variante(s) o error(es) de escritura en frecuencias.`
+    );
+  }
+
+
+  const badEmailOld =
+    oldAll.filter(
+      (student) =>
+        student.email &&
+        !isLikelyValidEmail(
+          student.email
+        )
+    );
+
+  const badEmailNew =
+    newAll.filter(
+      (student) =>
+        student.email &&
+        !isLikelyValidEmail(
+          student.email
+        )
+    );
+
+
+  if (
+    badEmailOld.length
+  ) {
     warnings.push(
       `Período anterior: ${badEmailOld.length} correo(s) con formato posiblemente inválido.`
     );
   }
 
-  if (badEmailNew.length) {
+  if (
+    badEmailNew.length
+  ) {
     warnings.push(
-      `Período actual: ${badEmailNew.length} correo(s) con formato posiblemente inválido.`
+      `Período nuevo: ${badEmailNew.length} correo(s) con formato posiblemente inválido.`
     );
   }
 
-  const badPhoneOld = oldAll.filter(
-    (student) =>
-      student.phone &&
-      !isLikelyValidPhone(student.phone)
-  );
 
-  const badPhoneNew = newAll.filter(
-    (student) =>
-      student.phone &&
-      !isLikelyValidPhone(student.phone)
-  );
+  const badPhoneOld =
+    oldAll.filter(
+      (student) =>
+        student.phone &&
+        !isLikelyValidPhone(
+          student.phone
+        )
+    );
 
-  if (badPhoneOld.length) {
+  const badPhoneNew =
+    newAll.filter(
+      (student) =>
+        student.phone &&
+        !isLikelyValidPhone(
+          student.phone
+        )
+    );
+
+
+  if (
+    badPhoneOld.length
+  ) {
     warnings.push(
       `Período anterior: ${badPhoneOld.length} teléfono(s) con formato posiblemente inválido.`
     );
   }
 
-  if (badPhoneNew.length) {
+  if (
+    badPhoneNew.length
+  ) {
     warnings.push(
-      `Período actual: ${badPhoneNew.length} teléfono(s) con formato posiblemente inválido.`
+      `Período nuevo: ${badPhoneNew.length} teléfono(s) con formato posiblemente inválido.`
     );
   }
 
+
   return {
     critical,
+
     warnings,
 
     details: {
-      missingIdOld: missingIdOld.length,
-      missingIdNew: missingIdNew.length,
+      missingIdOld:
+        missingIdOld.length,
 
-      missingLevelOld: missingLevelOld.length,
-      missingLevelNew: missingLevelNew.length,
+      missingIdNew:
+        missingIdNew.length,
+
+      missingLevelOld:
+        missingLevelOld.length,
+
+      missingLevelNew:
+        missingLevelNew.length,
 
       missingCategoryOld:
         missingCategoryOld.length,
@@ -680,27 +977,49 @@ const evaluateParsedDataQuality = ({
       missingCategoryNew:
         missingCategoryNew.length,
 
-      missingScheduleOld:
-        missingScheduleOld.length,
+      unknownFreqOld:
+        unknownFreqOld.length,
 
-      missingScheduleNew:
-        missingScheduleNew.length,
+      unknownFreqNew:
+        unknownFreqNew.length,
 
-      badEmailOld: badEmailOld.length,
-      badEmailNew: badEmailNew.length,
+      scheduleReviewOld:
+        scheduleReviewOld.length,
 
-      badPhoneOld: badPhoneOld.length,
-      badPhoneNew: badPhoneNew.length,
+      scheduleReviewNew:
+        scheduleReviewNew.length,
+
+      frequencyCorrections:
+        correctionsOld +
+        correctionsNew,
+
+      badEmailOld:
+        badEmailOld.length,
+
+      badEmailNew:
+        badEmailNew.length,
+
+      badPhoneOld:
+        badPhoneOld.length,
+
+      badPhoneNew:
+        badPhoneNew.length,
     },
   };
 };
+
 
 /* =========================================================
    TELÉFONO / WHATSAPP
    ========================================================= */
 
-const normalizeWhatsAppPhone = (phone = "") => {
-  let digits = phoneDigits(phone);
+const normalizeWhatsAppPhone = (
+  phone = ""
+) => {
+  let digits =
+    phoneDigits(
+      phone
+    );
 
   if (!digits) {
     return "";
@@ -709,76 +1028,100 @@ const normalizeWhatsAppPhone = (phone = "") => {
   /*
     +58 0414...
     580414...
-    -> 58414...
   */
-  if (/^5804\d{9}$/.test(digits)) {
-    digits = `58${digits.slice(3)}`;
+
+  if (
+    /^5804\d{9}$/.test(
+      digits
+    )
+  ) {
+    digits =
+      `58${digits.slice(
+        3
+      )}`;
   }
 
   /*
-    0414xxxxxxx
-    -> 58414xxxxxxx
+    0414...
   */
-  if (/^0(4\d{9})$/.test(digits)) {
-    digits = `58${digits.slice(1)}`;
+
+  if (
+    /^0(4\d{9})$/.test(
+      digits
+    )
+  ) {
+    digits =
+      `58${digits.slice(
+        1
+      )}`;
   }
 
   return digits;
 };
 
+
 /* =========================================================
-   PERSISTENCIA CRM
+   CRM PERSISTENTE
    ========================================================= */
 
-const simpleHash = (value = "") => {
+const simpleHash = (
+  value = ""
+) => {
   let hash = 5381;
 
-  for (let i = 0; i < value.length; i++) {
+  for (
+    let index = 0;
+    index < value.length;
+    index++
+  ) {
     hash =
-      (hash * 33) ^
-      value.charCodeAt(i);
+      (
+        hash * 33
+      ) ^
+      value.charCodeAt(
+        index
+      );
   }
 
-  return (hash >>> 0).toString(36);
+  return (
+    hash >>> 0
+  ).toString(36);
 };
+
 
 const buildAnalysisStorageKey = ({
   oldFiles,
   newFiles,
-  oldIntensivoLabel,
-  newIntensivoLabel,
 }) => {
-  const oldSignature = sortFilesSmart(
-    oldFiles
-  )
-    .map(
-      (file) =>
-        `${file.name}:${file.size}`
+  const oldSignature =
+    sortFilesSmart(
+      oldFiles
     )
-    .join("||");
+      .map(
+        (file) =>
+          `${file.name}:${file.size}`
+      )
+      .join("||");
 
-  const newSignature = sortFilesSmart(
-    newFiles
-  )
-    .map(
-      (file) =>
-        `${file.name}:${file.size}`
+  const newSignature =
+    sortFilesSmart(
+      newFiles
     )
-    .join("||");
-
-  const fingerprint = [
-    oldSignature,
-    oldIntensivoLabel,
-    newSignature,
-    newIntensivoLabel,
-  ].join("###");
+      .map(
+        (file) =>
+          `${file.name}:${file.size}`
+      )
+      .join("||");
 
   return `continuidad_crm_${simpleHash(
-    fingerprint
+    `${oldSignature}###${newSignature}`
   )}`;
 };
 
-const loadCrmFromStorage = (storageKey) => {
+
+const loadCrmFromStorage = (
+  storageKey
+) => {
   if (!storageKey) {
     return {};
   }
@@ -793,21 +1136,28 @@ const loadCrmFromStorage = (storageKey) => {
       return {};
     }
 
-    const parsed = JSON.parse(raw);
+    const parsed =
+      JSON.parse(
+        raw
+      );
 
-    return parsed &&
-      typeof parsed === "object"
+    return (
+      parsed &&
+      typeof parsed ===
+        "object"
+    )
       ? parsed
       : {};
   } catch (error) {
     console.warn(
-      "No se pudo cargar CRM local:",
+      "No se pudo cargar CRM:",
       error
     );
 
     return {};
   }
 };
+
 
 const saveCrmToStorage = (
   storageKey,
@@ -820,25 +1170,116 @@ const saveCrmToStorage = (
   try {
     window.localStorage.setItem(
       storageKey,
-      JSON.stringify(data)
+      JSON.stringify(
+        data
+      )
     );
   } catch (error) {
     console.warn(
-      "No se pudo guardar CRM local:",
+      "No se pudo guardar CRM:",
       error
     );
   }
 };
+
+
+/* =========================================================
+   EXPORTACIONES
+   ========================================================= */
+
+const stringifyExportValue = (
+  value
+) => {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  if (
+    Array.isArray(
+      value
+    )
+  ) {
+    return value.join(
+      ", "
+    );
+  }
+
+  return String(
+    value
+  );
+};
+
+
+/*
+  Reduce riesgo de fórmulas accidentales al abrir Excel.
+*/
+
+const excelSafe = (
+  value
+) => {
+  const text =
+    stringifyExportValue(
+      value
+    );
+
+  if (
+    /^[=+\-@]/.test(
+      text
+    )
+  ) {
+    return `'${text}`;
+  }
+
+  return text;
+};
+
+
+const escapeHtml = (
+  value
+) =>
+  stringifyExportValue(
+    value
+  )
+    .replace(
+      /&/g,
+      "&amp;"
+    )
+    .replace(
+      /</g,
+      "&lt;"
+    )
+    .replace(
+      />/g,
+      "&gt;"
+    )
+    .replace(
+      /"/g,
+      "&quot;"
+    )
+    .replace(
+      /'/g,
+      "&#039;"
+    );
+
 
 /* =========================================================
    COMPONENTE PRINCIPAL
    ========================================================= */
 
 const DashboardContinuidad = () => {
-  const [activeTab, setActiveTab] =
-    useState("upload");
+  const [
+    activeTab,
+    setActiveTab,
+  ] = useState(
+    "upload"
+  );
 
-  const fileInputRef = useRef(null);
+  const fileInputRef =
+    useRef(null);
+
 
   /* =======================================================
      ARCHIVOS
@@ -854,35 +1295,20 @@ const DashboardContinuidad = () => {
     setPdfNewFiles,
   ] = useState([]);
 
-  /*
-    Para el caso actual:
-
-    Julio = Intensivo A
-    Agosto = Intensivo B
-
-    Se mantienen seleccionables para que el sistema
-    pueda reutilizarse con futuros períodos.
-  */
-
-  const [
-    oldIntensivoLabel,
-    setOldIntensivoLabel,
-  ] = useState("INTENSIVO A");
-
-  const [
-    newIntensivoLabel,
-    setNewIntensivoLabel,
-  ] = useState("INTENSIVO B");
 
   /* =======================================================
      SISTEMA
      ======================================================= */
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-  const [errorMsg, setErrorMsg] =
-    useState("");
+  const [
+    errorMsg,
+    setErrorMsg,
+  ] = useState("");
 
   const [
     qualityData,
@@ -894,39 +1320,11 @@ const DashboardContinuidad = () => {
     setAnalysisStorageKey,
   ] = useState("");
 
-  /* =======================================================
-     DATOS DERIVADOS DEL MOTOR DE CONTINUIDAD
-     ======================================================= */
-
   const [
-    dropouts,
-    setDropouts,
-  ] = useState([]);
+    analysisData,
+    setAnalysisData,
+  ] = useState(null);
 
-  const [
-    newStudentsList,
-    setNewStudentsList,
-  ] = useState([]);
-
-  const [
-    freqChangersList,
-    setFreqChangersList,
-  ] = useState([]);
-
-  const [
-    graduadosList,
-    setGraduadosList,
-  ] = useState([]);
-
-  const [
-    transNinosJovenesList,
-    setTransNinosJovenesList,
-  ] = useState([]);
-
-  const [
-    transJovenesAdultosList,
-    setTransJovenesAdultosList,
-  ] = useState([]);
 
   /* =======================================================
      CRM
@@ -941,9 +1339,13 @@ const DashboardContinuidad = () => {
     crmModal,
     setCrmModal,
   ] = useState({
-    isOpen: false,
-    student: null,
+    isOpen:
+      false,
+
+    student:
+      null,
   });
+
 
   /* =======================================================
      TABLAS
@@ -952,23 +1354,29 @@ const DashboardContinuidad = () => {
   const [
     tableView,
     setTableView,
-  ] = useState("desercion");
+  ] = useState(
+    "desercion"
+  );
 
   const [
     filterFugaType,
     setFilterFugaType,
-  ] = useState("All");
+  ] = useState(
+    "All"
+  );
+
 
   /* =======================================================
-     ESTADÍSTICAS
+     EXPORTACIÓN
      ======================================================= */
 
   const [
-    stats,
-    setStats,
+    exportScope,
+    setExportScope,
   ] = useState(
-    createEmptyStats()
+    "combined"
   );
+
 
   /* =======================================================
      FILTROS
@@ -982,51 +1390,338 @@ const DashboardContinuidad = () => {
   const [
     selectedCategory,
     setSelectedCategory,
-  ] = useState("All");
+  ] = useState(
+    "All"
+  );
 
   const [
     selectedFrecuencia,
     setSelectedFrecuencia,
-  ] = useState("All");
+  ] = useState(
+    "All"
+  );
 
   const [
     selectedLevel,
     setSelectedLevel,
-  ] = useState("All");
+  ] = useState(
+    "All"
+  );
 
   const [
     selectedHorario,
     setSelectedHorario,
-  ] = useState("All");
+  ] = useState(
+    "All"
+  );
 
   const [
     levelChartCategory,
     setLevelChartCategory,
-  ] = useState("All");
+  ] = useState(
+    "All"
+  );
 
   const [
     pieMode,
     setPieMode,
-  ] = useState("horario");
+  ] = useState(
+    "horario"
+  );
+
 
   /* =======================================================
-     UTILIDADES DE ARCHIVO
+     DATOS DERIVADOS
+     ======================================================= */
+
+  const dropouts =
+    analysisData?.lists?.lost ??
+    EMPTY_ARRAY;
+
+  const currentLevel1List =
+    analysisData?.lists
+      ?.currentLevel1 ??
+    EMPTY_ARRAY;
+
+  const notPresentL02List =
+    analysisData?.lists
+      ?.notPresentPreviousLevel2Plus ??
+    EMPTY_ARRAY;
+
+  const freqChangersList =
+    analysisData?.lists
+      ?.frequencyChanges ??
+    EMPTY_ARRAY;
+
+  const graduadosList =
+    analysisData?.lists
+      ?.graduates ??
+    EMPTY_ARRAY;
+
+  const transNinosJovenesList =
+    analysisData?.lists
+      ?.ninosJovenes ??
+    EMPTY_ARRAY;
+
+  const transNinosAdultosList =
+    analysisData?.lists
+      ?.ninosAdultos ??
+    EMPTY_ARRAY;
+
+  const transJovenesAdultosList =
+    analysisData?.lists
+      ?.jovenesAdultos ??
+    EMPTY_ARRAY;
+
+
+  /* =======================================================
+     KPIs DERIVADOS DEL MOTOR
+     ======================================================= */
+
+  const stats =
+    useMemo(() => {
+      if (
+        !analysisData
+      ) {
+        return createEmptyStats();
+      }
+
+      const topVolume =
+        analysisData
+          .analytics
+          ?.topScheduleByVolume ||
+        {};
+
+      const topRate =
+        analysisData
+          .analytics
+          ?.topScheduleByRate ||
+        {};
+
+      return {
+        oldTotal:
+          analysisData
+            .totals
+            .previous,
+
+        newTotal:
+          analysisData
+            .totals
+            .current,
+
+        shouldContinue:
+          analysisData
+            .totals
+            .shouldContinue,
+
+        reenrolled:
+          analysisData
+            .totals
+            .reenrolled,
+
+        reenrolledPct:
+          analysisData
+            .rates
+            .retention,
+
+        lost:
+          analysisData
+            .totals
+            .lost,
+
+        lostPct:
+          analysisData
+            .rates
+            .attrition,
+
+        previousLevel1:
+          analysisData
+            .segmentation
+            .level1
+            .previous,
+
+        regularPrevious:
+          analysisData
+            .segmentation
+            .regularStudents
+            .previous,
+
+        level1Lost:
+          analysisData
+            .segmentation
+            .level1
+            .lost,
+
+        level1LostPct:
+          analysisData
+            .segmentation
+            .level1
+            .attritionRate,
+
+        regularLost:
+          analysisData
+            .segmentation
+            .regularStudents
+            .lost,
+
+        regularLostPct:
+          analysisData
+            .segmentation
+            .regularStudents
+            .attritionRate,
+
+        transNinosJovenes:
+          analysisData
+            .analytics
+            .categoryTransitions
+            ?.ninosJovenes ||
+          0,
+
+        transNinosAdultos:
+          analysisData
+            .analytics
+            .categoryTransitions
+            ?.ninosAdultos ||
+          0,
+
+        transJovenesAdultos:
+          analysisData
+            .analytics
+            .categoryTransitions
+            ?.jovenesAdultos ||
+          0,
+
+        categoryTransitionsAvailable:
+          Boolean(
+            analysisData
+              .analytics
+              .categoryTransitionsAvailable
+          ),
+
+        avgDensity:
+          analysisData
+            .analytics
+            .density
+            .average,
+
+        activeSections:
+          analysisData
+            .analytics
+            .density
+            .sections,
+
+        topHorarioFugas:
+          topVolume.schedule ||
+          "N/A",
+
+        topHorarioFugasCount:
+          topVolume.lost ||
+          0,
+
+        topHorarioFugasPrevious:
+          topVolume.previous ??
+          topVolume.eligible ??
+          0,
+
+        topHorarioFugasRate:
+          topVolume.rate ||
+          0,
+
+        topHorarioRate:
+          topRate.schedule ||
+          "N/A",
+
+        topHorarioRatePct:
+          topRate.rate ||
+          0,
+
+        topHorarioRateLost:
+          topRate.lost ||
+          0,
+
+        topHorarioRatePrevious:
+          topRate.previous ??
+          topRate.eligible ??
+          0,
+
+        graduados:
+          analysisData
+            .totals
+            .graduates,
+
+        terminalPrevious:
+          analysisData
+            .totals
+            .terminalPrevious,
+
+        terminalReappeared:
+          analysisData
+            .totals
+            .terminalReappeared,
+
+        currentLevel1:
+          analysisData
+            .totals
+            .currentLevel1,
+
+        notPresentPrevious:
+          analysisData
+            .totals
+            .notPresentPrevious,
+
+        notPresentPreviousL02Plus:
+          analysisData
+            .totals
+            .notPresentPreviousLevel2Plus,
+
+        cambiosFreq:
+          analysisData
+            .totals
+            .frequencyChanges,
+
+        reconciliationOk:
+          Boolean(
+            analysisData
+              .quality
+              ?.reconciliation
+              ?.ok
+          ),
+      };
+    }, [
+      analysisData,
+    ]);
+
+
+  /* =======================================================
+     ARCHIVOS
      ======================================================= */
 
   const mergeFiles = (
     previous,
     incoming
   ) => {
-    const map = new Map(
-      previous.map((file) => [
-        fileKey(file),
-        file,
-      ])
-    );
+    const map =
+      new Map(
+        previous.map(
+          (file) => [
+            fileKey(
+              file
+            ),
 
-    for (const file of incoming) {
+            file,
+          ]
+        )
+      );
+
+    for (
+      const file
+      of incoming
+    ) {
       map.set(
-        fileKey(file),
+        fileKey(
+          file
+        ),
+
         file
       );
     }
@@ -1036,21 +1731,40 @@ const DashboardContinuidad = () => {
     );
   };
 
-  const removeOldAt = (index) => {
-    setPdfOldFiles((previous) =>
-      previous.filter(
-        (_, i) => i !== index
-      )
+
+  const removeOldAt = (
+    index
+  ) => {
+    setPdfOldFiles(
+      (previous) =>
+        previous.filter(
+          (
+            _,
+            currentIndex
+          ) =>
+            currentIndex !==
+            index
+        )
     );
   };
 
-  const removeNewAt = (index) => {
-    setPdfNewFiles((previous) =>
-      previous.filter(
-        (_, i) => i !== index
-      )
+
+  const removeNewAt = (
+    index
+  ) => {
+    setPdfNewFiles(
+      (previous) =>
+        previous.filter(
+          (
+            _,
+            currentIndex
+          ) =>
+            currentIndex !==
+            index
+        )
     );
   };
+
 
   /* =======================================================
      RESET
@@ -1058,44 +1772,73 @@ const DashboardContinuidad = () => {
 
   const resetFilters = () => {
     setSearchTerm("");
-    setSelectedCategory("All");
-    setSelectedFrecuencia("All");
-    setSelectedLevel("All");
-    setSelectedHorario("All");
-    setLevelChartCategory("All");
-    setFilterFugaType("All");
+
+    setSelectedCategory(
+      "All"
+    );
+
+    setSelectedFrecuencia(
+      "All"
+    );
+
+    setSelectedLevel(
+      "All"
+    );
+
+    setSelectedHorario(
+      "All"
+    );
+
+    setLevelChartCategory(
+      "All"
+    );
+
+    setFilterFugaType(
+      "All"
+    );
   };
+
 
   const resetAll = () => {
     setPdfOldFiles([]);
+
     setPdfNewFiles([]);
 
-    setDropouts([]);
-    setNewStudentsList([]);
-    setFreqChangersList([]);
-    setGraduadosList([]);
-
-    setTransNinosJovenesList([]);
-    setTransJovenesAdultosList([]);
-
-    setCrmData({});
-    setAnalysisStorageKey("");
-
-    setStats(
-      createEmptyStats()
+    setAnalysisData(
+      null
     );
 
-    setQualityData(null);
+    setQualityData(
+      null
+    );
+
+    setCrmData({});
+
+    setAnalysisStorageKey(
+      ""
+    );
 
     setErrorMsg("");
 
     resetFilters();
 
-    setPieMode("horario");
-    setTableView("desercion");
+    setPieMode(
+      "horario"
+    );
 
-    setActiveTab("upload");
+    setTableView(
+      "desercion"
+    );
+
+    setExportScope(
+      "combined"
+    );
+
+    setActiveTab(
+      "upload"
+    );
   };
+
 
   /* =======================================================
      PROCESAMIENTO PRINCIPAL
@@ -1103,156 +1846,111 @@ const DashboardContinuidad = () => {
 
   const processPdfs = async () => {
     setErrorMsg("");
-    setQualityData(null);
+
+    setQualityData(
+      null
+    );
 
     if (
       !pdfOldFiles.length ||
       !pdfNewFiles.length
     ) {
       setErrorMsg(
-        "Selecciona al menos 1 PDF del período ANTERIOR y 1 PDF del período ACTUAL."
+        "Selecciona al menos un PDF del período anterior y uno del período nuevo."
       );
 
       return;
     }
 
     try {
-      setLoading(true);
-
-      /* ---------------------------------------------------
-         1. EXTRAER LOS DOS PERÍODOS
-         --------------------------------------------------- */
+      setLoading(
+        true
+      );
 
       const [
         oldResult,
         newResult,
-      ] = await Promise.all([
-        parseMany(pdfOldFiles, {
-          intensivoLabel:
-            oldIntensivoLabel,
-        }),
+      ] =
+        await Promise.all([
+          parseMany(
+            pdfOldFiles
+          ),
 
-        parseMany(pdfNewFiles, {
-          intensivoLabel:
-            newIntensivoLabel,
-        }),
-      ]);
+          parseMany(
+            pdfNewFiles
+          ),
+        ]);
 
-      const {
-        all: oldAll,
-        failed: failedOld,
-      } = oldResult;
-
-      const {
-        all: newAll,
-        failed: failedNew,
-      } = newResult;
-
-      /* ---------------------------------------------------
-         2. CONTROL DEL PARSER
-         --------------------------------------------------- */
 
       const parserQuality =
         evaluateParsedDataQuality({
-          oldAll,
-          newAll,
-          failedOld,
-          failedNew,
+          oldAll:
+            oldResult.all,
+
+          newAll:
+            newResult.all,
+
+          failedOld:
+            oldResult.failed,
+
+          failedNew:
+            newResult.failed,
         });
 
-      setQualityData(
-        parserQuality
-      );
 
       if (
-        parserQuality.critical.length
+        parserQuality
+          .critical
+          .length
       ) {
+        setQualityData(
+          parserQuality
+        );
+
         throw new Error(
-          `VALIDACIÓN BLOQUEADA: ${parserQuality.critical.join(
-            " | "
-          )}`
+          parserQuality
+            .critical
+            .join(" | ")
         );
       }
 
-      /* ---------------------------------------------------
-         3. MOTOR ÚNICO DE CONTINUIDAD
 
-         A partir de aquí App.jsx NO calcula:
-
-         - graduandos
-         - elegibles
-         - reinscritos
-         - fugas
-         - nuevos
-         - cambios de frecuencia
-         - transiciones
-         - densidad
-         - tasas
-
-         Todo viene de continuidad.js.
-         --------------------------------------------------- */
+      /*
+        UNA SOLA FUENTE DE VERDAD:
+        continuidad.js
+      */
 
       const analysis =
         analyzeContinuity({
           oldStudents:
-            oldAll,
+            oldResult.all,
 
           newStudents:
-            newAll,
+            newResult.all,
 
-          strict: true,
+          strict:
+            true,
         });
 
-      /* ---------------------------------------------------
-         4. HORARIOS VÁLIDOS
-
-         Excluimos N/A de los rankings gerenciales.
-         --------------------------------------------------- */
-
-      const validScheduleRows =
-        (
-          analysis.analytics
-            ?.dropoutBySchedule ||
-          []
-        ).filter(
-          (row) =>
-            row.schedule &&
-            row.schedule !== "N/A"
-        );
-
-      const topVolume =
-        getTopDropoutScheduleByVolume(
-          validScheduleRows
-        );
-
-      const topRate =
-        getTopDropoutScheduleByRate(
-          validScheduleRows
-        );
-
-      /* ---------------------------------------------------
-         5. ADVERTENCIAS COMBINADAS
-         --------------------------------------------------- */
 
       const allWarnings =
         Array.from(
           new Set([
             ...(
-              parserQuality.warnings ||
+              parserQuality
+                .warnings ||
               []
             ),
 
             ...(
-              analysis.quality
+              analysis
+                .quality
                 ?.warnings ||
               []
             ),
           ])
         );
 
-      /* ---------------------------------------------------
-         6. CRM PERSISTENTE
-         --------------------------------------------------- */
 
       const storageKey =
         buildAnalysisStorageKey({
@@ -1261,217 +1959,45 @@ const DashboardContinuidad = () => {
 
           newFiles:
             pdfNewFiles,
-
-          oldIntensivoLabel,
-
-          newIntensivoLabel,
         });
 
-      const savedCrm =
-        loadCrmFromStorage(
-          storageKey
-        );
 
       setAnalysisStorageKey(
         storageKey
       );
 
       setCrmData(
-        savedCrm
+        loadCrmFromStorage(
+          storageKey
+        )
       );
 
-      /* ---------------------------------------------------
-         7. LISTAS
-         --------------------------------------------------- */
 
-      setDropouts(
-        analysis.lists.lost
+      setAnalysisData(
+        analysis
       );
 
-      setNewStudentsList(
-        analysis.lists
-          .externalEntrants
-      );
-
-      setFreqChangersList(
-        analysis.lists
-          .frequencyChanges
-      );
-
-      setGraduadosList(
-        analysis.lists
-          .graduates
-      );
-
-      setTransNinosJovenesList(
-        analysis.lists
-          .ninosJovenes
-      );
-
-      setTransJovenesAdultosList(
-        analysis.lists
-          .jovenesAdultos
-      );
-
-      /* ---------------------------------------------------
-         8. KPIs
-
-         Solo mapeamos los resultados del motor.
-         No volvemos a calcularlos aquí.
-         --------------------------------------------------- */
-
-      setStats({
-        oldTotal:
-          analysis.totals.previous,
-
-        newTotal:
-          analysis.totals.current,
-
-        eligibleOld:
-          analysis.totals.eligible,
-
-        reenrolled:
-          analysis.totals.reenrolled,
-
-        reenrolledPct:
-          analysis.rates.retention,
-
-        lost:
-          analysis.totals.lost,
-
-        lostPct:
-          analysis.rates.attrition,
-
-        nuevosEligible:
-          analysis.segmentation
-            .newStudents.eligible,
-
-        regularesEligible:
-          analysis.segmentation
-            .regularStudents
-            .eligible,
-
-        nuevosLost:
-          analysis.segmentation
-            .newStudents.lost,
-
-        nuevosLostPct:
-          analysis.segmentation
-            .newStudents
-            .attritionRate,
-
-        regularesLost:
-          analysis.segmentation
-            .regularStudents.lost,
-
-        regularesLostPct:
-          analysis.segmentation
-            .regularStudents
-            .attritionRate,
-
-        transNinosJovenes:
-          analysis.lists
-            .ninosJovenes.length,
-
-        transJovenesAdultos:
-          analysis.lists
-            .jovenesAdultos.length,
-
-        categoryTransitionsAvailable:
-          Boolean(
-            analysis.analytics
-              .categoryTransitionsAvailable
-          ),
-
-        avgDensity:
-          analysis.analytics
-            .density.average,
-
-        activeSections:
-          analysis.analytics
-            .density.sections,
-
-        topHorarioFugas:
-          topVolume.schedule,
-
-        topHorarioFugasCount:
-          topVolume.lost,
-
-        topHorarioFugasEligible:
-          topVolume.eligible,
-
-        topHorarioFugasRate:
-          topVolume.rate,
-
-        topHorarioRate:
-          topRate.schedule,
-
-        topHorarioRatePct:
-          topRate.rate,
-
-        topHorarioRateLost:
-          topRate.lost,
-
-        topHorarioRateEligible:
-          topRate.eligible,
-
-        graduados:
-          analysis.totals
-            .graduates,
-
-        graduadosPresentesNuevamente:
-          analysis.totals
-            .graduatesPresentAgain,
-
-        nuevosL01:
-          analysis.totals
-            .newLevel1,
-
-        nuevosNivelacion:
-          analysis.totals
-            .externalLevel2Plus,
-
-        nuevosExternosTotal:
-          analysis.totals
-            .externalEntrants,
-
-        cambiosFreq:
-          analysis.totals
-            .frequencyChanges,
-
-        reconciliationOk:
-          Boolean(
-            analysis.quality
-              ?.reconciliation?.ok
-          ),
-      });
-
-      /* ---------------------------------------------------
-         9. CALIDAD CONSOLIDADA
-         --------------------------------------------------- */
 
       setQualityData({
         critical: [],
+
         warnings:
           allWarnings,
 
         details:
-          parserQuality.details,
+          parserQuality
+            .details,
 
-        reconciliationOk:
-          Boolean(
-            analysis.quality
-              ?.reconciliation?.ok
-          ),
+        analysisQuality:
+          analysis
+            .quality,
 
         rulesVersion:
-          analysis.rulesVersion ||
+          analysis
+            .rulesVersion ||
           CONTINUIDAD_RULES_VERSION,
       });
 
-      /* ---------------------------------------------------
-         10. ABRIR DASHBOARD
-         --------------------------------------------------- */
 
       resetFilters();
 
@@ -1483,16 +2009,21 @@ const DashboardContinuidad = () => {
         "dashboard"
       );
     } catch (error) {
-      console.error(error);
+      console.error(
+        error
+      );
 
       setErrorMsg(
         error?.message ||
           "Error procesando los PDFs."
       );
     } finally {
-      setLoading(false);
+      setLoading(
+        false
+      );
     }
   };
+
 
   /* =======================================================
      CRM
@@ -1514,6 +2045,7 @@ const DashboardContinuidad = () => {
       }
     ).length;
 
+
   const rescuedCount =
     dropouts.filter(
       (student) =>
@@ -1523,28 +2055,27 @@ const DashboardContinuidad = () => {
         "Rescatado"
     ).length;
 
-  /*
-    0 / 0 NO es 0%.
-
-    Cuando nadie ha sido contactado,
-    no existe una tasa calculable.
-  */
 
   const winBackRate =
     contactedCount > 0
       ? Math.round(
-          (rescuedCount /
-            contactedCount) *
+          (
+            rescuedCount /
+            contactedCount
+          ) *
             100
         )
       : null;
+
 
   const saveCrmData = (
     event
   ) => {
     event.preventDefault();
 
-    if (!crmModal.student) {
+    if (
+      !crmModal.student
+    ) {
       return;
     }
 
@@ -1554,10 +2085,15 @@ const DashboardContinuidad = () => {
       );
 
     const studentKey =
-      crmModal.student.idNorm ||
+      crmModal
+        .student
+        .idNorm ||
       normalizeStudentId(
-        crmModal.student.id
+        crmModal
+          .student
+          .id
       );
+
 
     setCrmData(
       (previous) => {
@@ -1581,7 +2117,8 @@ const DashboardContinuidad = () => {
               ),
 
             updatedAt:
-              new Date().toISOString(),
+              new Date()
+                .toISOString(),
           },
         };
 
@@ -1594,16 +2131,23 @@ const DashboardContinuidad = () => {
       }
     );
 
+
     setCrmModal({
-      isOpen: false,
-      student: null,
+      isOpen:
+        false,
+
+      student:
+        null,
     });
   };
+
 
   const getCrmStatusColor = (
     status
   ) => {
-    switch (status) {
+    switch (
+      status
+    ) {
       case "Rescatado":
         return "bg-emerald-100 text-emerald-800 border-emerald-200";
 
@@ -1618,37 +2162,6 @@ const DashboardContinuidad = () => {
     }
   };
 
-  /* =======================================================
-     INTERACCIÓN CON GRÁFICO CIRCULAR
-     ======================================================= */
-
-  const onClickPie = (
-    data
-  ) => {
-    const name =
-      data?.name ||
-      data?.payload?.name;
-
-    if (!name) {
-      return;
-    }
-
-    setTableView(
-      "desercion"
-    );
-
-    if (
-      pieMode === "horario"
-    ) {
-      setSelectedHorario(
-        name
-      );
-    } else {
-      setSelectedFrecuencia(
-        name
-      );
-    }
-  };
 
   /* =======================================================
      FUENTE DE TABLA
@@ -1656,23 +2169,17 @@ const DashboardContinuidad = () => {
 
   const sourceData =
     useMemo(() => {
-      switch (tableView) {
+      switch (
+        tableView
+      ) {
         case "desercion":
           return dropouts;
 
         case "nuevosL01":
-          return newStudentsList.filter(
-            (student) =>
-              student.levelNorm ===
-              "L01"
-          );
+          return currentLevel1List;
 
-        case "nivelacion":
-          return newStudentsList.filter(
-            (student) =>
-              student.levelNorm !==
-              "L01"
-          );
+        case "noPresentesL02":
+          return notPresentL02List;
 
         case "cambios":
           return freqChangersList;
@@ -1683,6 +2190,9 @@ const DashboardContinuidad = () => {
         case "transNinosJovenes":
           return transNinosJovenesList;
 
+        case "transNinosAdultos":
+          return transNinosAdultosList;
+
         case "transJovenesAdultos":
           return transJovenesAdultosList;
 
@@ -1692,12 +2202,15 @@ const DashboardContinuidad = () => {
     }, [
       tableView,
       dropouts,
-      newStudentsList,
+      currentLevel1List,
+      notPresentL02List,
       freqChangersList,
       graduadosList,
       transNinosJovenesList,
+      transNinosAdultosList,
       transJovenesAdultosList,
     ]);
+
 
   /* =======================================================
      OPCIONES DE FILTROS
@@ -1713,9 +2226,12 @@ const DashboardContinuidad = () => {
                 (student) =>
                   student.category
               )
-              .filter(Boolean)
+              .filter(
+                Boolean
+              )
           )
         ).sort();
+
 
       const levels =
         Array.from(
@@ -1725,32 +2241,41 @@ const DashboardContinuidad = () => {
                 (student) =>
                   student.levelNorm
               )
-              .filter(Boolean)
+              .filter(
+                Boolean
+              )
           )
-        ).sort((a, b) => {
-          const aLevel =
-            parseInt(
-              String(a).replace(
-                /\D/g,
-                ""
-              ),
-              10
-            ) || 0;
+        ).sort(
+          (a, b) => {
+            const aLevel =
+              parseInt(
+                String(
+                  a
+                ).replace(
+                  /\D/g,
+                  ""
+                ),
+                10
+              ) || 0;
 
-          const bLevel =
-            parseInt(
-              String(b).replace(
-                /\D/g,
-                ""
-              ),
-              10
-            ) || 0;
+            const bLevel =
+              parseInt(
+                String(
+                  b
+                ).replace(
+                  /\D/g,
+                  ""
+                ),
+                10
+              ) || 0;
 
-          return (
-            aLevel -
-            bLevel
-          );
-        });
+            return (
+              aLevel -
+              bLevel
+            );
+          }
+        );
+
 
       const horarios =
         Array.from(
@@ -1760,9 +2285,12 @@ const DashboardContinuidad = () => {
                 (student) =>
                   student.scheduleBlock
               )
-              .filter(Boolean)
+              .filter(
+                Boolean
+              )
           )
         );
+
 
       const frecuencias =
         Array.from(
@@ -1772,9 +2300,12 @@ const DashboardContinuidad = () => {
                 (student) =>
                   student.frequencyNorm
               )
-              .filter(Boolean)
+              .filter(
+                Boolean
+              )
           )
         );
+
 
       const knownHorarios =
         __HORARIO_BLOQUES__ ||
@@ -1784,6 +2315,7 @@ const DashboardContinuidad = () => {
         new Set(
           knownHorarios
         );
+
 
       return {
         categories: [
@@ -1819,24 +2351,27 @@ const DashboardContinuidad = () => {
         frecuencias: [
           "All",
 
-          ...FRECUENCIA_ORDER.filter(
-            (frecuencia) =>
+          ...FREQUENCY_ORDER.filter(
+            (frequency) =>
               frecuencias.includes(
-                frecuencia
+                frequency
               )
           ),
 
           ...frecuencias
             .filter(
-              (frecuencia) =>
-                !FRECUENCIA_ORDER.includes(
-                  frecuencia
+              (frequency) =>
+                !FREQUENCY_ORDER.includes(
+                  frequency
                 )
             )
             .sort(),
         ],
       };
-    }, [sourceData]);
+    }, [
+      sourceData,
+    ]);
+
 
   /* =======================================================
      DATOS FILTRADOS
@@ -1849,6 +2384,7 @@ const DashboardContinuidad = () => {
           .trim()
           .toLowerCase();
 
+
       return sourceData.filter(
         (student) => {
           const matchesSearch =
@@ -1858,27 +2394,40 @@ const DashboardContinuidad = () => {
                 ""
             )
               .toLowerCase()
-              .includes(query) ||
+              .includes(
+                query
+              ) ||
             String(
-              student.id || ""
+              student.id ||
+                ""
             )
               .toLowerCase()
-              .includes(query) ||
+              .includes(
+                query
+              ) ||
             String(
-              student.idNorm || ""
+              student.idNorm ||
+                ""
             )
               .toLowerCase()
-              .includes(query) ||
+              .includes(
+                query
+              ) ||
             String(
               student.email ||
                 ""
             )
               .toLowerCase()
-              .includes(query) ||
+              .includes(
+                query
+              ) ||
             String(
               student.phone ||
                 ""
-            ).includes(query);
+            ).includes(
+              query
+            );
+
 
           const matchesCategory =
             selectedCategory ===
@@ -1886,11 +2435,13 @@ const DashboardContinuidad = () => {
             student.category ===
               selectedCategory;
 
-          const matchesFrecuencia =
+
+          const matchesFrequency =
             selectedFrecuencia ===
               "All" ||
             student.frequencyNorm ===
               selectedFrecuencia;
+
 
           const matchesLevel =
             selectedLevel ===
@@ -1898,14 +2449,17 @@ const DashboardContinuidad = () => {
             student.levelNorm ===
               selectedLevel;
 
+
           const matchesHorario =
             selectedHorario ===
               "All" ||
             student.scheduleBlock ===
               selectedHorario;
 
+
           let matchesFugaType =
             true;
+
 
           if (
             tableView ===
@@ -1932,10 +2486,11 @@ const DashboardContinuidad = () => {
             }
           }
 
+
           return (
             matchesSearch &&
             matchesCategory &&
-            matchesFrecuencia &&
+            matchesFrequency &&
             matchesLevel &&
             matchesHorario &&
             matchesFugaType
@@ -1953,27 +2508,31 @@ const DashboardContinuidad = () => {
       filterFugaType,
     ]);
 
+
   /* =======================================================
      GRÁFICO POR NIVEL
      ======================================================= */
 
   const chartCategories =
-    useMemo(() => {
-      return [
-        "All",
+    useMemo(() => [
+      "All",
 
-        ...Array.from(
-          new Set(
-            dropouts
-              .map(
-                (student) =>
-                  student.category
-              )
-              .filter(Boolean)
-          )
-        ).sort(),
-      ];
-    }, [dropouts]);
+      ...Array.from(
+        new Set(
+          dropouts
+            .map(
+              (student) =>
+                student.category
+            )
+            .filter(
+              Boolean
+            )
+        )
+      ).sort(),
+    ], [
+      dropouts,
+    ]);
+
 
   const barSource =
     useMemo(() => {
@@ -1993,6 +2552,7 @@ const DashboardContinuidad = () => {
       dropouts,
       levelChartCategory,
     ]);
+
 
   const chartDataLevel =
     useMemo(() => {
@@ -2017,40 +2577,46 @@ const DashboardContinuidad = () => {
           {}
         );
 
+
       return Object.keys(
         countByLevel
       )
-        .map((level) => ({
-          name: level,
+        .map(
+          (level) => ({
+            name:
+              level,
 
-          count:
-            countByLevel[level],
-        }))
-        .sort((a, b) => {
-          const aLevel =
-            parseInt(
-              a.name.replace(
-                /\D/g,
-                ""
-              ),
-              10
-            ) || 0;
+            count:
+              countByLevel[
+                level
+              ],
+          })
+        )
+        .sort(
+          (a, b) =>
+            (
+              parseInt(
+                a.name.replace(
+                  /\D/g,
+                  ""
+                ),
+                10
+              ) || 0
+            ) -
+            (
+              parseInt(
+                b.name.replace(
+                  /\D/g,
+                  ""
+                ),
+                10
+              ) || 0
+            )
+        );
+    }, [
+      barSource,
+    ]);
 
-          const bLevel =
-            parseInt(
-              b.name.replace(
-                /\D/g,
-                ""
-              ),
-              10
-            ) || 0;
-
-          return (
-            aLevel -
-            bLevel
-          );
-        });
-    }, [barSource]);
 
   /* =======================================================
      PIE DE FUGAS
@@ -2067,10 +2633,16 @@ const DashboardContinuidad = () => {
             const key =
               pieMode ===
               "horario"
-                ? student.scheduleBlock ||
-                  "N/A"
-                : student.frequencyNorm ||
-                  "N/A";
+                ? (
+                    student
+                      .scheduleBlock ||
+                    "N/A"
+                  )
+                : (
+                    student
+                      .frequencyNorm ||
+                    FREQUENCIES.NA
+                  );
 
             accumulator[key] =
               (
@@ -2083,15 +2655,21 @@ const DashboardContinuidad = () => {
           {}
         );
 
+
       return Object.keys(
         countByKey
       )
-        .map((key) => ({
-          name: key,
+        .map(
+          (key) => ({
+            name:
+              key,
 
-          value:
-            countByKey[key],
-        }))
+            value:
+              countByKey[
+                key
+              ],
+          })
+        )
         .sort(
           (a, b) =>
             b.value -
@@ -2102,135 +2680,1030 @@ const DashboardContinuidad = () => {
       pieMode,
     ]);
 
+
+  const onClickPie = (
+    data
+  ) => {
+    const name =
+      data?.name ||
+      data?.payload?.name;
+
+    if (!name) {
+      return;
+    }
+
+    setTableView(
+      "desercion"
+    );
+
+    if (
+      pieMode ===
+      "horario"
+    ) {
+      setSelectedHorario(
+        name
+      );
+    } else {
+      setSelectedFrecuencia(
+        name
+      );
+    }
+  };
+
+
   /* =======================================================
-     EXPORTAR EXCEL
+     EXPORTACIÓN - LISTA ACTUAL
+     ======================================================= */
+
+  const currentListTitle =
+    TABLE_VIEW_LABELS[
+      tableView
+    ] ||
+    "Lista actual";
+
+
+  const getFilterDescription = () => {
+    const active = [];
+
+    if (
+      selectedCategory !==
+      "All"
+    ) {
+      active.push(
+        `Categoría: ${selectedCategory}`
+      );
+    }
+
+    if (
+      selectedLevel !==
+      "All"
+    ) {
+      active.push(
+        `Nivel: ${selectedLevel}`
+      );
+    }
+
+    if (
+      selectedFrecuencia !==
+      "All"
+    ) {
+      active.push(
+        `Frecuencia: ${selectedFrecuencia}`
+      );
+    }
+
+    if (
+      selectedHorario !==
+      "All"
+    ) {
+      active.push(
+        `Horario: ${selectedHorario}`
+      );
+    }
+
+    if (
+      filterFugaType !==
+        "All" &&
+      tableView ===
+        "desercion"
+    ) {
+      active.push(
+        `Tipo: ${filterFugaType}`
+      );
+    }
+
+    if (
+      searchTerm.trim()
+    ) {
+      active.push(
+        `Búsqueda: ${searchTerm.trim()}`
+      );
+    }
+
+    return active.length
+      ? active.join(
+          " | "
+        )
+      : "Sin filtros adicionales";
+  };
+
+
+  const getListExportColumns = () => {
+    const common = [
+      {
+        label:
+          "Estudiante",
+
+        value:
+          (student) =>
+            student.name,
+      },
+
+      {
+        label:
+          "Cédula",
+
+        value:
+          (student) =>
+            student.id,
+      },
+
+      {
+        label:
+          "Categoría",
+
+        value:
+          (student) =>
+            student.category,
+      },
+
+      {
+        label:
+          "Nivel",
+
+        value:
+          (student) =>
+            student.levelNorm,
+      },
+    ];
+
+
+    if (
+      tableView ===
+      "desercion"
+    ) {
+      return [
+        {
+          label:
+            "Estatus CRM",
+
+          value:
+            (student) =>
+              crmData[
+                student.idNorm
+              ]?.status ||
+              "Pendiente",
+        },
+
+        ...common,
+
+        {
+          label:
+            "Frecuencia",
+
+          value:
+            (student) =>
+              student.frequencyNorm,
+        },
+
+        {
+          label:
+            "Horario",
+
+          value:
+            (student) =>
+              student.scheduleBlock,
+        },
+
+        {
+          label:
+            "Email",
+
+          value:
+            (student) =>
+              student.email ||
+              "",
+        },
+
+        {
+          label:
+            "Teléfono",
+
+          value:
+            (student) =>
+              student.phone ||
+              "",
+        },
+
+        {
+          label:
+            "Motivo CRM",
+
+          value:
+            (student) =>
+              crmData[
+                student.idNorm
+              ]?.motive ||
+              "",
+        },
+
+        {
+          label:
+            "Notas CRM",
+
+          value:
+            (student) =>
+              crmData[
+                student.idNorm
+              ]?.notes ||
+              "",
+        },
+      ];
+    }
+
+
+    if (
+      tableView ===
+      "cambios"
+    ) {
+      return [
+        ...common,
+
+        {
+          label:
+            "Frecuencia Anterior",
+
+          value:
+            (student) =>
+              student.oldFrequency ||
+              "N/A",
+        },
+
+        {
+          label:
+            "Frecuencia Nueva",
+
+          value:
+            (student) =>
+              student.newFrequency ||
+              student.frequencyNorm ||
+              "N/A",
+        },
+
+        {
+          label:
+            "Cambio",
+
+          value:
+            (student) =>
+              `${student.oldFrequency || "N/A"} → ${
+                student.newFrequency ||
+                student.frequencyNorm ||
+                "N/A"
+              }`,
+        },
+
+        {
+          label:
+            "Horario Nuevo",
+
+          value:
+            (student) =>
+              student.scheduleBlock ||
+              "N/A",
+        },
+
+        {
+          label:
+            "Email",
+
+          value:
+            (student) =>
+              student.email ||
+              "",
+        },
+
+        {
+          label:
+            "Teléfono",
+
+          value:
+            (student) =>
+              student.phone ||
+              "",
+        },
+      ];
+    }
+
+
+    if (
+      tableView ===
+        "transNinosJovenes" ||
+      tableView ===
+        "transNinosAdultos" ||
+      tableView ===
+        "transJovenesAdultos"
+    ) {
+      return [
+        {
+          label:
+            "Estudiante",
+
+          value:
+            (student) =>
+              student.name,
+        },
+
+        {
+          label:
+            "Cédula",
+
+          value:
+            (student) =>
+              student.id,
+        },
+
+        {
+          label:
+            "Categoría Anterior",
+
+          value:
+            (student) =>
+              student.oldCategory ||
+              "N/A",
+        },
+
+        {
+          label:
+            "Categoría Nueva",
+
+          value:
+            (student) =>
+              student.newCategory ||
+              student.category ||
+              "N/A",
+        },
+
+        {
+          label:
+            "Nivel Nuevo",
+
+          value:
+            (student) =>
+              student.levelNorm,
+        },
+
+        {
+          label:
+            "Frecuencia Nueva",
+
+          value:
+            (student) =>
+              student.frequencyNorm,
+        },
+
+        {
+          label:
+            "Horario Nuevo",
+
+          value:
+            (student) =>
+              student.scheduleBlock,
+        },
+
+        {
+          label:
+            "Email",
+
+          value:
+            (student) =>
+              student.email ||
+              "",
+        },
+
+        {
+          label:
+            "Teléfono",
+
+          value:
+            (student) =>
+              student.phone ||
+              "",
+        },
+      ];
+    }
+
+
+    return [
+      ...common,
+
+      {
+        label:
+          "Frecuencia",
+
+        value:
+          (student) =>
+            student.frequencyNorm,
+      },
+
+      {
+        label:
+          "Horario",
+
+        value:
+          (student) =>
+            student.scheduleBlock,
+      },
+
+      {
+        label:
+          "Email",
+
+        value:
+          (student) =>
+            student.email ||
+            "",
+      },
+
+      {
+        label:
+          "Teléfono",
+
+        value:
+          (student) =>
+            student.phone ||
+            "",
+      },
+    ];
+  };
+
+
+  const getListExportTable = () => {
+    const columns =
+      getListExportColumns();
+
+    return {
+      headers:
+        columns.map(
+          (column) =>
+            column.label
+        ),
+
+      rows:
+        filteredData.map(
+          (student) =>
+            columns.map(
+              (column) =>
+                stringifyExportValue(
+                  column.value(
+                    student
+                  )
+                )
+            )
+        ),
+    };
+  };
+
+
+  /* =======================================================
+     EXPORTACIÓN - INDICADORES
+     ======================================================= */
+
+  const getIndicatorRows = () => [
+    [
+      "Total período anterior",
+      stats.oldTotal,
+      "",
+    ],
+
+    [
+      "Total período nuevo",
+      stats.newTotal,
+      "",
+    ],
+
+    [
+      "Estudiantes del período anterior que debían continuar",
+      stats.shouldContinue,
+      "",
+    ],
+
+    [
+      "Total reinscritos",
+      stats.reenrolled,
+      `${stats.reenrolledPct}%`,
+    ],
+
+    [
+      "Total pérdida",
+      stats.lost,
+      `${stats.lostPct}%`,
+    ],
+
+    [
+      "L01 del período anterior",
+      stats.previousLevel1,
+      "",
+    ],
+
+    [
+      "Fuga L01",
+      stats.level1Lost,
+      `${stats.level1LostPct}%`,
+    ],
+
+    [
+      "Regulares L02+ del período anterior",
+      stats.regularPrevious,
+      "",
+    ],
+
+    [
+      "Fuga regulares",
+      stats.regularLost,
+      `${stats.regularLostPct}%`,
+    ],
+
+    [
+      "Graduandos",
+      stats.graduados,
+      "Adultos L20 anterior que no aparecen en el período nuevo",
+    ],
+
+    [
+      "Adultos L20 anterior que reaparecen",
+      stats.terminalReappeared,
+      "Requieren revisión académica",
+    ],
+
+    [
+      "Ingresos Nivel 01",
+      stats.currentLevel1,
+      "Todos los L01 del período nuevo",
+    ],
+
+    [
+      "Estudiantes no presentes en el período anterior L02+",
+      stats.notPresentPreviousL02Plus,
+      "",
+    ],
+
+    [
+      "Cambios de Frecuencia",
+      stats.cambiosFreq,
+      "",
+    ],
+
+    [
+      "Niños → Jóvenes",
+      stats.transNinosJovenes,
+      "",
+    ],
+
+    [
+      "Niños → Adultos",
+      stats.transNinosAdultos,
+      "",
+    ],
+
+    [
+      "Jóvenes → Adultos",
+      stats.transJovenesAdultos,
+      "",
+    ],
+
+    [
+      "Densidad promedio",
+      stats.avgDensity,
+      `${stats.activeSections} secciones activas`,
+    ],
+
+    [
+      "Horario con mayor volumen de fuga",
+      stats.topHorarioFugas,
+      `${stats.topHorarioFugasCount} de ${stats.topHorarioFugasPrevious} (${stats.topHorarioFugasRate}%)`,
+    ],
+
+    [
+      "Horario con mayor tasa de fuga",
+      stats.topHorarioRate,
+      `${stats.topHorarioRateLost} de ${stats.topHorarioRatePrevious} (${stats.topHorarioRatePct}%)`,
+    ],
+
+    [
+      "Conciliación interna",
+      stats.reconciliationOk
+        ? "CORRECTA"
+        : "REVISAR",
+      CONTINUIDAD_RULES_VERSION,
+    ],
+  ];
+
+
+  const getDropoutLevelRows = () =>
+    (
+      analysisData
+        ?.analytics
+        ?.dropoutByLevel ||
+      []
+    ).map(
+      (row) => [
+        row.level,
+        row.count,
+      ]
+    );
+
+
+  const getDropoutScheduleRows = () =>
+    (
+      analysisData
+        ?.analytics
+        ?.dropoutBySchedule ||
+      []
+    ).map(
+      (row) => [
+        row.schedule,
+
+        row.previous ??
+          row.eligible ??
+          0,
+
+        row.lost,
+
+        row.retained,
+
+        `${row.rate}%`,
+      ]
+    );
+
+
+  const getDropoutFrequencyRows = () =>
+    (
+      analysisData
+        ?.analytics
+        ?.dropoutByFrequency ||
+      []
+    ).map(
+      (row) => [
+        row.frequency,
+
+        row.previous,
+
+        row.lost,
+
+        row.retained,
+
+        `${row.rate}%`,
+      ]
+    );
+
+
+  const getQualityRows = () => {
+    const warnings =
+      qualityData
+        ?.warnings ||
+      [];
+
+    if (
+      !warnings.length
+    ) {
+      return [
+        [
+          "Sin advertencias",
+          "La validación no reportó advertencias.",
+        ],
+      ];
+    }
+
+    return warnings.map(
+      (
+        warning,
+        index
+      ) => [
+        index + 1,
+
+        warning,
+      ]
+    );
+  };
+
+
+  /* =======================================================
+     EXCEL
      ======================================================= */
 
   const exportExcel = () => {
     if (
-      !filteredData.length
+      !analysisData
     ) {
       return;
     }
 
-    const rows =
-      filteredData.map(
-        (student) => {
-          const crm =
-            crmData[
-              student.idNorm
-            ] || {};
-
-          const baseRow = {
-            Cedula:
-              student.id,
-
-            Estudiante:
-              student.name,
-
-            Categoria:
-              student.category,
-
-            Nivel:
-              student.levelNorm,
-
-            Frecuencia:
-              student.frequencyNorm ||
-              "N/A",
-
-            Horario:
-              student.scheduleBlock ||
-              "N/A",
-
-            Email:
-              student.email || "",
-
-            Telefono:
-              student.phone || "",
-          };
-
-          if (
-            tableView ===
-            "desercion"
-          ) {
-            return {
-              ...baseRow,
-
-              "Estatus CRM":
-                crm.status ||
-                "Pendiente",
-
-              Motivo:
-                crm.motive ||
-                "",
-
-              Notas:
-                crm.notes ||
-                "",
-            };
-          }
-
-          if (
-            tableView ===
-            "cambios"
-          ) {
-            return {
-              ...baseRow,
-
-              "Frecuencia Anterior":
-                student.oldFrequency ||
-                "N/A",
-
-              "Familia Anterior":
-                student.oldFrequencyBase ||
-                "N/A",
-
-              "Familia Nueva":
-                student.newFrequencyBase ||
-                "N/A",
-            };
-          }
-
-          if (
-            tableView ===
-              "transNinosJovenes" ||
-            tableView ===
-              "transJovenesAdultos"
-          ) {
-            return {
-              ...baseRow,
-
-              "Categoría Anterior":
-                student.oldCategory ||
-                "N/A",
-            };
-          }
-
-          return baseRow;
-        }
-      );
-
-    const worksheet =
-      XLSX.utils.json_to_sheet(
-        rows
-      );
-
     const workbook =
       XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      "Datos Continuidad"
-    );
+
+    if (
+      exportScope ===
+        "combined" ||
+      exportScope ===
+        "indicators"
+    ) {
+      const indicatorsAoA = [
+        [
+          "Indicador",
+          "Valor",
+          "Detalle",
+        ],
+
+        ...getIndicatorRows().map(
+          (row) =>
+            row.map(
+              excelSafe
+            )
+        ),
+      ];
+
+
+      const indicatorsSheet =
+        XLSX.utils
+          .aoa_to_sheet(
+            indicatorsAoA
+          );
+
+      indicatorsSheet[
+        "!cols"
+      ] = [
+        {
+          wch: 50,
+        },
+
+        {
+          wch: 18,
+        },
+
+        {
+          wch: 55,
+        },
+      ];
+
+
+      XLSX.utils
+        .book_append_sheet(
+          workbook,
+
+          indicatorsSheet,
+
+          "Indicadores"
+        );
+
+
+      const levelSheet =
+        XLSX.utils
+          .aoa_to_sheet([
+            [
+              "Nivel",
+              "Pérdidas",
+            ],
+
+            ...getDropoutLevelRows(),
+          ]);
+
+      levelSheet[
+        "!cols"
+      ] = [
+        {
+          wch: 16,
+        },
+
+        {
+          wch: 16,
+        },
+      ];
+
+
+      XLSX.utils
+        .book_append_sheet(
+          workbook,
+
+          levelSheet,
+
+          "Fuga por nivel"
+        );
+
+
+      const scheduleSheet =
+        XLSX.utils
+          .aoa_to_sheet([
+            [
+              "Horario",
+              "Debían continuar",
+              "Pérdidas",
+              "Reinscritos",
+              "Tasa de fuga",
+            ],
+
+            ...getDropoutScheduleRows(),
+          ]);
+
+      scheduleSheet[
+        "!cols"
+      ] = [
+        {
+          wch: 28,
+        },
+
+        {
+          wch: 20,
+        },
+
+        {
+          wch: 14,
+        },
+
+        {
+          wch: 14,
+        },
+
+        {
+          wch: 16,
+        },
+      ];
+
+
+      XLSX.utils
+        .book_append_sheet(
+          workbook,
+
+          scheduleSheet,
+
+          "Fuga por horario"
+        );
+
+
+      const frequencySheet =
+        XLSX.utils
+          .aoa_to_sheet([
+            [
+              "Frecuencia",
+              "Debían continuar",
+              "Pérdidas",
+              "Reinscritos",
+              "Tasa de fuga",
+            ],
+
+            ...getDropoutFrequencyRows(),
+          ]);
+
+      frequencySheet[
+        "!cols"
+      ] = [
+        {
+          wch: 28,
+        },
+
+        {
+          wch: 20,
+        },
+
+        {
+          wch: 14,
+        },
+
+        {
+          wch: 14,
+        },
+
+        {
+          wch: 16,
+        },
+      ];
+
+
+      XLSX.utils
+        .book_append_sheet(
+          workbook,
+
+          frequencySheet,
+
+          "Fuga por frecuencia"
+        );
+
+
+      const qualitySheet =
+        XLSX.utils
+          .aoa_to_sheet([
+            [
+              "Nº",
+              "Control de calidad",
+            ],
+
+            ...getQualityRows(),
+          ]);
+
+      qualitySheet[
+        "!cols"
+      ] = [
+        {
+          wch: 8,
+        },
+
+        {
+          wch: 100,
+        },
+      ];
+
+
+      XLSX.utils
+        .book_append_sheet(
+          workbook,
+
+          qualitySheet,
+
+          "Calidad de datos"
+        );
+    }
+
+
+    if (
+      exportScope ===
+        "combined" ||
+      exportScope ===
+        "list"
+    ) {
+      const {
+        headers,
+        rows,
+      } =
+        getListExportTable();
+
+
+      const listSheet =
+        XLSX.utils
+          .aoa_to_sheet([
+            [
+              "Lista",
+              currentListTitle,
+            ],
+
+            [
+              "Filtros",
+              getFilterDescription(),
+            ],
+
+            [
+              "Registros",
+              filteredData.length,
+            ],
+
+            [],
+
+            headers,
+
+            ...rows.map(
+              (row) =>
+                row.map(
+                  excelSafe
+                )
+            ),
+          ]);
+
+
+      listSheet[
+        "!cols"
+      ] =
+        headers.map(
+          (header) => ({
+            wch:
+              Math.max(
+                15,
+
+                Math.min(
+                  45,
+
+                  String(
+                    header
+                  ).length +
+                    8
+                )
+              ),
+          })
+        );
+
+
+      XLSX.utils
+        .book_append_sheet(
+          workbook,
+
+          listSheet,
+
+          "Lista actual"
+        );
+    }
+
 
     XLSX.writeFile(
       workbook,
-      `BD_Continuidad_${new Date()
+
+      `Continuidad_${new Date()
         .toISOString()
-        .slice(0, 10)}.xlsx`
+        .slice(
+          0,
+          10
+        )}.xlsx`
     );
   };
+
 
   /* =======================================================
      IMPORTAR CRM DESDE EXCEL
@@ -2240,7 +3713,8 @@ const DashboardContinuidad = () => {
     event
   ) => {
     const file =
-      event.target.files?.[0];
+      event.target
+        .files?.[0];
 
     if (!file) {
       return;
@@ -2249,987 +3723,1276 @@ const DashboardContinuidad = () => {
     const reader =
       new FileReader();
 
+
     reader.onload = (
       readerEvent
     ) => {
       try {
-        const binary =
-          readerEvent.target.result;
-
         const workbook =
-          XLSX.read(binary, {
-            type: "binary",
-          });
+          XLSX.read(
+            readerEvent
+              .target
+              .result,
+            {
+              type:
+                "binary",
+            }
+          );
 
-        const firstSheetName =
-          workbook.SheetNames[0];
 
-        if (!firstSheetName) {
+        const firstSheet =
+          workbook
+            .SheetNames[0];
+
+
+        if (!firstSheet) {
           throw new Error(
-            "El archivo Excel no contiene hojas."
+            "El archivo no contiene hojas."
           );
         }
 
+
         const worksheet =
-          workbook.Sheets[
-            firstSheetName
-          ];
+          workbook
+            .Sheets[
+              firstSheet
+            ];
+
 
         const data =
-          XLSX.utils.sheet_to_json(
-            worksheet
-          );
+          XLSX.utils
+            .sheet_to_json(
+              worksheet
+            );
+
 
         const nextCrm = {
           ...crmData,
         };
 
-        data.forEach((row) => {
-          if (
-            !row.Cedula ||
-            !row["Estatus CRM"]
-          ) {
-            return;
+
+        data.forEach(
+          (row) => {
+            if (
+              !row.Cedula ||
+              !row[
+                "Estatus CRM"
+              ]
+            ) {
+              return;
+            }
+
+            const key =
+              normalizeStudentId(
+                row.Cedula
+              );
+
+            if (!key) {
+              return;
+            }
+
+
+            nextCrm[key] = {
+              status:
+                row[
+                  "Estatus CRM"
+                ] ||
+                "Pendiente",
+
+              motive:
+                row.Motivo ||
+                "",
+
+              notes:
+                row.Notas ||
+                "",
+
+              updatedAt:
+                new Date()
+                  .toISOString(),
+            };
           }
+        );
 
-          const key =
-            normalizeStudentId(
-              row.Cedula
-            );
-
-          if (!key) {
-            return;
-          }
-
-          nextCrm[key] = {
-            status:
-              row["Estatus CRM"] ||
-              "Pendiente",
-
-            motive:
-              row.Motivo ||
-              "",
-
-            notes:
-              row.Notas ||
-              "",
-
-            updatedAt:
-              new Date().toISOString(),
-          };
-        });
 
         setCrmData(
           nextCrm
         );
+
 
         saveCrmToStorage(
           analysisStorageKey,
           nextCrm
         );
 
+
         event.target.value =
           "";
       } catch (error) {
-        console.error(error);
+        console.error(
+          error
+        );
 
         setErrorMsg(
-          "No se pudo importar la base de datos CRM."
+          "No se pudo importar la base CRM."
         );
       }
     };
+
 
     reader.readAsBinaryString(
       file
     );
   };
 
-  /* =======================================================
-     REPORTE PDF
-     ======================================================= */
-
-  const generatePDFReport = () => {
-    const winBackText =
-      winBackRate === null
-        ? "Sin contactos registrados"
-        : `${winBackRate}%`;
-
-    const transitionText =
-      stats.categoryTransitionsAvailable
-        ? `${
-            stats.transNinosJovenes +
-            stats.transJovenesAdultos
-          } transiciones`
-        : "N/A para las categorías cargadas";
-
-    const dropoutCategories =
-      Array.from(
-        new Set(
-          dropouts.map(
-            (student) =>
-              student.category
-          )
-        )
-      );
-
-    const docDefinition = {
-      pageSize: "A4",
-
-      pageMargins: [
-        40,
-        60,
-        40,
-        60,
-      ],
-
-      header: {
-        text: "REPORTE CORPORATIVO DE CONTINUIDAD",
-
-        margin: [
-          40,
-          20,
-          40,
-          0,
-        ],
-
-        fontSize: 10,
-
-        color: "#64748b",
-
-        alignment: "right",
-      },
-
-      content: [
-        {
-          text: "DASHBOARD DE CONTINUIDAD",
-          style: "title",
-        },
-
-        {
-          text: "Informe Ejecutivo de Retención Académica",
-          style: "subtitle",
-        },
-
-        {
-          text: `Fecha de emisión: ${new Date().toLocaleDateString()}`,
-          style: "date",
-        },
-
-        {
-          text: `Motor de reglas: ${CONTINUIDAD_RULES_VERSION}`,
-          style: "version",
-        },
-
-        "\n",
-
-        {
-          text: "1. Resumen de Desempeño General",
-          style: "sectionHeader",
-        },
-
-        {
-          text:
-            `El período anterior contiene ${stats.oldTotal} estudiantes. ` +
-            `De ellos, ${stats.graduados} corresponden a graduandos y ${stats.eligibleOld} son elegibles para continuidad. ` +
-            `Se identificaron ${stats.reenrolled} reinscritos, equivalentes a una tasa de retención de ${stats.reenrolledPct}%. ` +
-            `La pérdida es de ${stats.lost} estudiantes, equivalente a ${stats.lostPct}%. ` +
-            `El período actual contiene ${stats.newTotal} estudiantes.`,
-
-          alignment:
-            "justify",
-
-          margin: [
-            0,
-            0,
-            0,
-            10,
-          ],
-
-          lineHeight: 1.5,
-        },
-
-        {
-          text: "2. Indicadores Clave de Gestión",
-          style: "sectionHeader",
-        },
-
-        {
-          style: "kpiTable",
-
-          table: {
-            widths: [
-              "*",
-              "*",
-              "*",
-            ],
-
-            body: [
-              [
-                {
-                  text: "Densidad Promedio",
-                  style: "kpiLabel",
-                },
-
-                {
-                  text: "Transición de Categorías",
-                  style: "kpiLabel",
-                },
-
-                {
-                  text: "Tasa de Rescate",
-                  style: "kpiLabel",
-                },
-              ],
-
-              [
-                {
-                  text: `${stats.avgDensity} / Sección`,
-                  style: "kpiValue",
-                },
-
-                {
-                  text: transitionText,
-                  style: "kpiValue",
-                },
-
-                {
-                  text: winBackText,
-                  style: "kpiValue",
-                },
-              ],
-            ],
-          },
-
-          layout:
-            "lightHorizontalLines",
-        },
-
-        "\n",
-
-        {
-          ul: [
-            {
-              text:
-                `Fuga L01: ${stats.nuevosLost} de ${stats.nuevosEligible} estudiantes (${stats.nuevosLostPct}%).`,
-
-              margin: [
-                0,
-                0,
-                0,
-                5,
-              ],
-            },
-
-            {
-              text:
-                `Fuga de estudiantes regulares: ${stats.regularesLost} de ${stats.regularesEligible} (${stats.regularesLostPct}%).`,
-
-              margin: [
-                0,
-                0,
-                0,
-                5,
-              ],
-            },
-
-            {
-              text:
-                `Mayor volumen de fuga: "${stats.topHorarioFugas}", con ${stats.topHorarioFugasCount} pérdida(s), equivalente a ${stats.topHorarioFugasRate}% de ${stats.topHorarioFugasEligible} elegibles en ese horario.`,
-
-              margin: [
-                0,
-                0,
-                0,
-                5,
-              ],
-            },
-
-            {
-              text:
-                `Mayor tasa de fuga por horario: "${stats.topHorarioRate}", con ${stats.topHorarioRatePct}% (${stats.topHorarioRateLost} de ${stats.topHorarioRateEligible}).`,
-
-              margin: [
-                0,
-                0,
-                0,
-                5,
-              ],
-            },
-
-            {
-              text:
-                `Movimientos: ${stats.graduados} graduandos, ${stats.nuevosL01} ingresos L01, ${stats.nuevosNivelacion} ingresos L02+ no presentes en el período anterior y ${stats.cambiosFreq} cambios reales de frecuencia.`,
-
-              margin: [
-                0,
-                0,
-                0,
-                5,
-              ],
-            },
-
-            {
-              text:
-                winBackRate === null
-                  ? `Gestión CRM: todavía no se han registrado contactos sobre las ${stats.lost} fugas.`
-                  : `Gestión CRM: de ${stats.lost} fugas, se han contactado ${contactedCount} y se han rescatado ${rescuedCount}, para una efectividad de ${winBackRate}%.`,
-            },
-          ],
-
-          margin: [
-            0,
-            0,
-            0,
-            20,
-          ],
-        },
-
-        {
-          text: "3. Matriz de Fuga por Categoría",
-          style: "sectionHeader",
-        },
-
-        {
-          table: {
-            headerRows: 1,
-
-            widths: [
-              "*",
-              "auto",
-              "auto",
-            ],
-
-            body: [
-              [
-                {
-                  text: "Categoría",
-                  style: "tableHeader",
-                },
-
-                {
-                  text: "Alumnos Perdidos",
-                  style: "tableHeader",
-                  alignment: "center",
-                },
-
-                {
-                  text: "% del Total",
-                  style: "tableHeader",
-                  alignment: "center",
-                },
-              ],
-
-              ...dropoutCategories.map(
-                (category) => {
-                  const count =
-                    dropouts.filter(
-                      (student) =>
-                        student.category ===
-                        category
-                    ).length;
-
-                  const percentage =
-                    stats.lost > 0
-                      ? Math.round(
-                          (count /
-                            stats.lost) *
-                            100
-                        )
-                      : 0;
-
-                  return [
-                    category ||
-                      "N/A",
-
-                    {
-                      text:
-                        count.toString(),
-
-                      alignment:
-                        "center",
-                    },
-
-                    {
-                      text: `${percentage}%`,
-
-                      alignment:
-                        "center",
-                    },
-                  ];
-                }
-              ),
-            ],
-          },
-
-          layout: "borders",
-        },
-
-        "\n",
-
-        {
-          text: "4. Control de Conciliación",
-          style: "sectionHeader",
-        },
-
-        {
-          text:
-            `Anterior: ${stats.oldTotal} = ${stats.eligibleOld} elegibles + ${stats.graduados} graduandos.\n` +
-            `Elegibles: ${stats.eligibleOld} = ${stats.reenrolled} reinscritos + ${stats.lost} fugas.\n` +
-            `Actual: ${stats.newTotal} estudiantes.\n` +
-            `Conciliación interna: ${
-              stats.reconciliationOk
-                ? "CORRECTA"
-                : "REVISAR"
-            }.`,
-
-          margin: [
-            0,
-            0,
-            0,
-            10,
-          ],
-        },
-
-        {
-          text: "5. Nota metodológica",
-          style: "sectionHeader",
-        },
-
-        {
-          text:
-            "Los estudiantes clasificados como ingresos L02+ son personas presentes en el período actual que no aparecen en el período inmediatamente anterior y están ubicadas en L02 o superior. Esta condición no demuestra por sí sola que hayan ingresado mediante prueba de nivelación; pueden existir reingresos de períodos más antiguos y debe verificarse el récord en el SGA.",
-
-          alignment:
-            "justify",
-        },
-      ],
-
-      styles: {
-        title: {
-          fontSize: 22,
-          bold: true,
-          color: "#0f172a",
-          alignment: "center",
-        },
-
-        subtitle: {
-          fontSize: 14,
-          color: "#475569",
-          alignment: "center",
-
-          margin: [
-            0,
-            5,
-            0,
-            5,
-          ],
-        },
-
-        date: {
-          fontSize: 10,
-          color: "#94a3b8",
-          alignment: "center",
-        },
-
-        version: {
-          fontSize: 8,
-          color: "#94a3b8",
-          alignment: "center",
-
-          margin: [
-            0,
-            3,
-            0,
-            20,
-          ],
-        },
-
-        sectionHeader: {
-          fontSize: 14,
-          bold: true,
-          color: "#1e293b",
-
-          margin: [
-            0,
-            15,
-            0,
-            8,
-          ],
-
-          decoration:
-            "underline",
-        },
-
-        kpiTable: {
-          margin: [
-            0,
-            10,
-            0,
-            15,
-          ],
-        },
-
-        kpiLabel: {
-          fontSize: 10,
-          color: "#64748b",
-          bold: true,
-          alignment: "center",
-        },
-
-        kpiValue: {
-          fontSize: 14,
-          color: "#0f172a",
-          bold: true,
-          alignment: "center",
-
-          margin: [
-            0,
-            5,
-            0,
-            5,
-          ],
-        },
-
-        tableHeader: {
-          bold: true,
-          fontSize: 11,
-          color: "white",
-          fillColor: "#334155",
-        },
-      },
-    };
-
-    pdfMake
-      .createPdf(
-        docDefinition
-      )
-      .download(
-        `Dashboard_Continuidad_${new Date()
-          .toISOString()
-          .slice(0, 10)}.pdf`
-      );
-  };
 
   /* =======================================================
-     REPORTE WORD
+     WORD
      ======================================================= */
+
+  const docxCell = (
+    value,
+    bold = false
+  ) =>
+    new Docx.TableCell({
+      children: [
+        new Docx.Paragraph({
+          children: [
+            new Docx.TextRun({
+              text:
+                stringifyExportValue(
+                  value
+                ),
+
+              bold,
+
+              size:
+                16,
+            }),
+          ],
+        }),
+      ],
+    });
+
+
+  const buildDocxTable = (
+    headers,
+    rows
+  ) =>
+    new Docx.Table({
+      rows: [
+        new Docx.TableRow({
+          children:
+            headers.map(
+              (header) =>
+                docxCell(
+                  header,
+                  true
+                )
+            ),
+        }),
+
+        ...rows.map(
+          (row) =>
+            new Docx.TableRow({
+              children:
+                row.map(
+                  (value) =>
+                    docxCell(
+                      value
+                    )
+                ),
+            })
+        ),
+      ],
+
+      width: {
+        size: 100,
+
+        type:
+          Docx.WidthType
+            .PERCENTAGE,
+      },
+    });
+
 
   const generateWordReport =
     async () => {
-      const categoryRows = [
-        new Docx.TableRow({
-          children: [
-            new Docx.TableCell({
-              children: [
-                new Docx.Paragraph({
-                  text: "Categoría",
-                  bold: true,
-                }),
-              ],
-            }),
+      if (
+        !analysisData
+      ) {
+        return;
+      }
 
-            new Docx.TableCell({
-              children: [
-                new Docx.Paragraph({
-                  text: "Total Deserción",
-                  bold: true,
-                }),
-              ],
+      const children = [
+        new Docx.Paragraph({
+          children: [
+            new Docx.TextRun({
+              text:
+                "DASHBOARD DE CONTINUIDAD",
+
+              bold:
+                true,
+
+              size:
+                34,
             }),
           ],
+
+          alignment:
+            Docx
+              .AlignmentType
+              .CENTER,
         }),
 
-        ...Array.from(
-          new Set(
-            dropouts.map(
-              (student) =>
-                student.category
-            )
-          )
-        ).map((category) => {
-          const count =
-            dropouts.filter(
-              (student) =>
-                student.category ===
-                category
-            ).length;
+        new Docx.Paragraph({
+          children: [
+            new Docx.TextRun({
+              text:
+                `Fecha: ${new Date().toLocaleDateString()}`,
+            }),
+          ],
 
-          return new Docx.TableRow({
-            children: [
-              new Docx.TableCell({
-                children: [
-                  new Docx.Paragraph({
-                    text:
-                      category ||
-                      "N/A",
-                  }),
-                ],
-              }),
+          alignment:
+            Docx
+              .AlignmentType
+              .CENTER,
+        }),
 
-              new Docx.TableCell({
-                children: [
-                  new Docx.Paragraph({
-                    text:
-                      count.toString(),
-                  }),
-                ],
-              }),
-            ],
-          });
+        new Docx.Paragraph({
+          children: [
+            new Docx.TextRun({
+              text:
+                `Reglas: ${CONTINUIDAD_RULES_VERSION}`,
+            }),
+          ],
+
+          alignment:
+            Docx
+              .AlignmentType
+              .CENTER,
+        }),
+
+        new Docx.Paragraph({
+          text: "",
         }),
       ];
 
-      const rescueText =
-        winBackRate === null
-          ? "No existen contactos registrados; la tasa de rescate todavía no es calculable."
-          : `Se contactó a ${contactedCount} alumnos, logrando recuperar a ${rescuedCount} (${winBackRate}% de efectividad).`;
 
-      const transitionText =
-        stats.categoryTransitionsAvailable
-          ? `${
-              stats.transNinosJovenes +
-              stats.transJovenesAdultos
-            } transiciones detectadas.`
-          : "No evaluable con las categorías incluidas en los archivos cargados.";
+      if (
+        exportScope ===
+          "combined" ||
+        exportScope ===
+          "indicators"
+      ) {
+        children.push(
+          new Docx.Paragraph({
+            children: [
+              new Docx.TextRun({
+                text:
+                  "Indicadores de Gestión",
+
+                bold:
+                  true,
+
+                size:
+                  26,
+              }),
+            ],
+          })
+        );
+
+
+        children.push(
+          buildDocxTable(
+            [
+              "Indicador",
+              "Valor",
+              "Detalle",
+            ],
+
+            getIndicatorRows()
+          )
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            text: "",
+          })
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            children: [
+              new Docx.TextRun({
+                text:
+                  "Fuga por Horario",
+
+                bold:
+                  true,
+
+                size:
+                  24,
+              }),
+            ],
+          })
+        );
+
+
+        children.push(
+          buildDocxTable(
+            [
+              "Horario",
+              "Debían continuar",
+              "Pérdidas",
+              "Reinscritos",
+              "Tasa",
+            ],
+
+            getDropoutScheduleRows()
+          )
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            text: "",
+          })
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            children: [
+              new Docx.TextRun({
+                text:
+                  "Fuga por Frecuencia",
+
+                bold:
+                  true,
+
+                size:
+                  24,
+              }),
+            ],
+          })
+        );
+
+
+        children.push(
+          buildDocxTable(
+            [
+              "Frecuencia",
+              "Debían continuar",
+              "Pérdidas",
+              "Reinscritos",
+              "Tasa",
+            ],
+
+            getDropoutFrequencyRows()
+          )
+        );
+      }
+
+
+      if (
+        exportScope ===
+          "combined" ||
+        exportScope ===
+          "list"
+      ) {
+        const {
+          headers,
+          rows,
+        } =
+          getListExportTable();
+
+
+        children.push(
+          new Docx.Paragraph({
+            text: "",
+          })
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            children: [
+              new Docx.TextRun({
+                text:
+                  currentListTitle,
+
+                bold:
+                  true,
+
+                size:
+                  26,
+              }),
+            ],
+
+            pageBreakBefore:
+              exportScope ===
+              "combined",
+          })
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            children: [
+              new Docx.TextRun({
+                text:
+                  `Filtros: ${getFilterDescription()}`,
+              }),
+            ],
+          })
+        );
+
+
+        children.push(
+          new Docx.Paragraph({
+            children: [
+              new Docx.TextRun({
+                text:
+                  `Registros: ${filteredData.length}`,
+              }),
+            ],
+          })
+        );
+
+
+        children.push(
+          buildDocxTable(
+            headers,
+            rows
+          )
+        );
+      }
+
 
       const document =
         new Docx.Document({
           sections: [
             {
-              properties: {},
-
-              children: [
-                new Docx.Paragraph({
-                  text: "DASHBOARD DE CONTINUIDAD",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_1,
-
-                  alignment:
-                    Docx.AlignmentType
-                      .CENTER,
-                }),
-
-                new Docx.Paragraph({
-                  text: "Informe Ejecutivo de Retención Académica",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_2,
-
-                  alignment:
-                    Docx.AlignmentType
-                      .CENTER,
-                }),
-
-                new Docx.Paragraph({
-                  text: `Fecha de emisión: ${new Date().toLocaleDateString()}`,
-
-                  alignment:
-                    Docx.AlignmentType
-                      .CENTER,
-                }),
-
-                new Docx.Paragraph({
-                  text: `Motor de reglas: ${CONTINUIDAD_RULES_VERSION}`,
-
-                  alignment:
-                    Docx.AlignmentType
-                      .CENTER,
-                }),
-
-                new Docx.Paragraph({
-                  text: " ",
-                }),
-
-                new Docx.Paragraph({
-                  text: "1. Resumen General Académico",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_3,
-                }),
-
-                new Docx.Paragraph({
-                  text:
-                    `El período anterior contiene ${stats.oldTotal} estudiantes. ` +
-                    `${stats.graduados} corresponden a graduandos y ${stats.eligibleOld} son elegibles para continuidad. ` +
-                    `Se reinscribieron ${stats.reenrolled} estudiantes (${stats.reenrolledPct}%) y se identificaron ${stats.lost} pérdidas (${stats.lostPct}%). ` +
-                    `El período actual contiene ${stats.newTotal} estudiantes.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: " ",
-                }),
-
-                new Docx.Paragraph({
-                  text: "2. Indicadores Clave de Gestión",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_3,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Fuga L01: ${stats.nuevosLost} de ${stats.nuevosEligible} (${stats.nuevosLostPct}%).`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Fuga Regulares: ${stats.regularesLost} de ${stats.regularesEligible} (${stats.regularesLostPct}%).`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Graduandos: ${stats.graduados}.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Ingresos L01: ${stats.nuevosL01}.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Ingresos L02+ no presentes en el período anterior: ${stats.nuevosNivelacion}.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Densidad Promedio: ${stats.avgDensity} alumnos por sección activa (${stats.activeSections} secciones).`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Mayor volumen de fuga: "${stats.topHorarioFugas}", con ${stats.topHorarioFugasCount} estudiantes.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Mayor tasa de fuga: "${stats.topHorarioRate}", con ${stats.topHorarioRatePct}% (${stats.topHorarioRateLost} de ${stats.topHorarioRateEligible}).`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Cambios reales de frecuencia: ${stats.cambiosFreq}.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Transiciones de categoría: ${transitionText}`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `• Tasa de Rescate: ${rescueText}`,
-                }),
-
-                new Docx.Paragraph({
-                  text: " ",
-                }),
-
-                new Docx.Paragraph({
-                  text: "3. Control de Conciliación",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_3,
-                }),
-
-                new Docx.Paragraph({
-                  text: `Anterior: ${stats.oldTotal} = ${stats.eligibleOld} elegibles + ${stats.graduados} graduandos.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `Elegibles: ${stats.eligibleOld} = ${stats.reenrolled} reinscritos + ${stats.lost} fugas.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `Actual: ${stats.newTotal} estudiantes.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: `Conciliación interna: ${
-                    stats.reconciliationOk
-                      ? "CORRECTA"
-                      : "REVISAR"
-                  }.`,
-                }),
-
-                new Docx.Paragraph({
-                  text: " ",
-                }),
-
-                new Docx.Paragraph({
-                  text: "4. Matriz de Fuga por Categoría",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_3,
-                }),
-
-                new Docx.Table({
-                  rows:
-                    categoryRows,
-
-                  width: {
-                    size: 100,
-
-                    type:
-                      Docx.WidthType
-                        .PERCENTAGE,
+              properties: {
+                page: {
+                  size: {
+                    orientation:
+                      Docx
+                        .PageOrientation
+                        .LANDSCAPE,
                   },
-                }),
+                },
+              },
 
-                new Docx.Paragraph({
-                  text: " ",
-                }),
-
-                new Docx.Paragraph({
-                  text: "5. Nota metodológica",
-
-                  heading:
-                    Docx.HeadingLevel
-                      .HEADING_3,
-                }),
-
-                new Docx.Paragraph({
-                  text:
-                    "Los estudiantes identificados como ingresos L02+ son personas presentes en el período actual que no aparecen en el período inmediatamente anterior y están inscritas en L02 o superior. Esta condición no demuestra por sí sola que hayan ingresado mediante nivelación; el estatus debe validarse en el SGA.",
-                }),
-              ],
+              children,
             },
           ],
         });
 
+
       const blob =
-        await Docx.Packer.toBlob(
-          document
-        );
+        await Docx
+          .Packer
+          .toBlob(
+            document
+          );
+
 
       saveAs(
         blob,
-        `Dashboard_Continuidad_${new Date()
+
+        `Continuidad_${new Date()
           .toISOString()
-          .slice(0, 10)}.docx`
+          .slice(
+            0,
+            10
+          )}.docx`
       );
     };
+
+
+  /* =======================================================
+     PDF
+     ======================================================= */
+
+  const pdfTable = (
+    headers,
+    rows,
+    fontSize = 7
+  ) => ({
+    table: {
+      headerRows: 1,
+
+      widths:
+        headers.map(
+          () => "*"
+        ),
+
+      body: [
+        headers.map(
+          (header) => ({
+            text:
+              stringifyExportValue(
+                header
+              ),
+
+            bold:
+              true,
+
+            fillColor:
+              "#e2e8f0",
+          })
+        ),
+
+        ...rows.map(
+          (row) =>
+            row.map(
+              (value) => ({
+                text:
+                  stringifyExportValue(
+                    value
+                  ),
+              })
+            )
+        ),
+      ],
+    },
+
+    fontSize,
+
+    layout:
+      "lightHorizontalLines",
+
+    margin: [
+      0,
+      5,
+      0,
+      15,
+    ],
+  });
+
+
+  const generatePDFReport = () => {
+    if (
+      !analysisData
+    ) {
+      return;
+    }
+
+
+    const content = [
+      {
+        text:
+          "DASHBOARD DE CONTINUIDAD",
+
+        fontSize:
+          20,
+
+        bold:
+          true,
+
+        alignment:
+          "center",
+      },
+
+      {
+        text:
+          `Fecha: ${new Date().toLocaleDateString()} · Reglas: ${CONTINUIDAD_RULES_VERSION}`,
+
+        fontSize:
+          8,
+
+        color:
+          "#64748b",
+
+        alignment:
+          "center",
+
+        margin: [
+          0,
+          5,
+          0,
+          15,
+        ],
+      },
+    ];
+
+
+    if (
+      exportScope ===
+        "combined" ||
+      exportScope ===
+        "indicators"
+    ) {
+      content.push({
+        text:
+          "Indicadores de Gestión",
+
+        fontSize:
+          14,
+
+        bold:
+          true,
+
+        margin: [
+          0,
+          5,
+          0,
+          5,
+        ],
+      });
+
+
+      content.push(
+        pdfTable(
+          [
+            "Indicador",
+            "Valor",
+            "Detalle",
+          ],
+
+          getIndicatorRows(),
+
+          8
+        )
+      );
+
+
+      content.push({
+        text:
+          "Fuga por Nivel",
+
+        fontSize:
+          13,
+
+        bold:
+          true,
+
+        margin: [
+          0,
+          10,
+          0,
+          5,
+        ],
+      });
+
+
+      content.push(
+        pdfTable(
+          [
+            "Nivel",
+            "Pérdidas",
+          ],
+
+          getDropoutLevelRows(),
+
+          8
+        )
+      );
+
+
+      content.push({
+        text:
+          "Fuga por Horario",
+
+        fontSize:
+          13,
+
+        bold:
+          true,
+
+        margin: [
+          0,
+          10,
+          0,
+          5,
+        ],
+      });
+
+
+      content.push(
+        pdfTable(
+          [
+            "Horario",
+            "Debían continuar",
+            "Pérdidas",
+            "Reinscritos",
+            "Tasa",
+          ],
+
+          getDropoutScheduleRows(),
+
+          7
+        )
+      );
+
+
+      content.push({
+        text:
+          "Fuga por Frecuencia",
+
+        fontSize:
+          13,
+
+        bold:
+          true,
+
+        margin: [
+          0,
+          10,
+          0,
+          5,
+        ],
+      });
+
+
+      content.push(
+        pdfTable(
+          [
+            "Frecuencia",
+            "Debían continuar",
+            "Pérdidas",
+            "Reinscritos",
+            "Tasa",
+          ],
+
+          getDropoutFrequencyRows(),
+
+          7
+        )
+      );
+    }
+
+
+    if (
+      exportScope ===
+        "combined" ||
+      exportScope ===
+        "list"
+    ) {
+      const {
+        headers,
+        rows,
+      } =
+        getListExportTable();
+
+
+      content.push({
+        text:
+          currentListTitle,
+
+        fontSize:
+          14,
+
+        bold:
+          true,
+
+        pageBreak:
+          exportScope ===
+          "combined"
+            ? "before"
+            : undefined,
+
+        margin: [
+          0,
+          5,
+          0,
+          5,
+        ],
+      });
+
+
+      content.push({
+        text:
+          `Filtros: ${getFilterDescription()} · Registros: ${filteredData.length}`,
+
+        fontSize:
+          8,
+
+        color:
+          "#64748b",
+
+        margin: [
+          0,
+          0,
+          0,
+          8,
+        ],
+      });
+
+
+      content.push(
+        pdfTable(
+          headers,
+          rows,
+          headers.length >
+          8
+            ? 5.5
+            : 6.5
+        )
+      );
+    }
+
+
+    pdfMake
+      .createPdf({
+        pageSize:
+          "A4",
+
+        pageOrientation:
+          "landscape",
+
+        pageMargins: [
+          25,
+          35,
+          25,
+          35,
+        ],
+
+        content,
+
+        defaultStyle: {
+          fontSize:
+            8,
+        },
+      })
+      .download(
+        `Continuidad_${new Date()
+          .toISOString()
+          .slice(
+            0,
+            10
+          )}.pdf`
+      );
+  };
+
+
+  /* =======================================================
+     IMPRIMIR
+     ======================================================= */
+
+  const buildHtmlTable = (
+    headers,
+    rows
+  ) => `
+    <table>
+      <thead>
+        <tr>
+          ${headers
+            .map(
+              (header) =>
+                `<th>${escapeHtml(
+                  header
+                )}</th>`
+            )
+            .join("")}
+        </tr>
+      </thead>
+
+      <tbody>
+        ${rows
+          .map(
+            (row) => `
+              <tr>
+                ${row
+                  .map(
+                    (value) =>
+                      `<td>${escapeHtml(
+                        value
+                      )}</td>`
+                  )
+                  .join("")}
+              </tr>
+            `
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+
+
+  const printReport = () => {
+    if (
+      !analysisData
+    ) {
+      return;
+    }
+
+
+    const printWindow =
+      window.open(
+        "",
+        "_blank"
+      );
+
+
+    if (
+      !printWindow
+    ) {
+      setErrorMsg(
+        "El navegador bloqueó la ventana de impresión. Permite ventanas emergentes para este sitio."
+      );
+
+      return;
+    }
+
+
+    let body = `
+      <h1>
+        Dashboard de Continuidad
+      </h1>
+
+      <p class="meta">
+        Fecha:
+        ${escapeHtml(
+          new Date().toLocaleDateString()
+        )}
+        · Reglas:
+        ${escapeHtml(
+          CONTINUIDAD_RULES_VERSION
+        )}
+      </p>
+    `;
+
+
+    if (
+      exportScope ===
+        "combined" ||
+      exportScope ===
+        "indicators"
+    ) {
+      body += `
+        <h2>
+          Indicadores de Gestión
+        </h2>
+
+        ${buildHtmlTable(
+          [
+            "Indicador",
+            "Valor",
+            "Detalle",
+          ],
+
+          getIndicatorRows()
+        )}
+
+        <h2>
+          Fuga por Nivel
+        </h2>
+
+        ${buildHtmlTable(
+          [
+            "Nivel",
+            "Pérdidas",
+          ],
+
+          getDropoutLevelRows()
+        )}
+
+        <h2>
+          Fuga por Horario
+        </h2>
+
+        ${buildHtmlTable(
+          [
+            "Horario",
+            "Debían continuar",
+            "Pérdidas",
+            "Reinscritos",
+            "Tasa",
+          ],
+
+          getDropoutScheduleRows()
+        )}
+
+        <h2>
+          Fuga por Frecuencia
+        </h2>
+
+        ${buildHtmlTable(
+          [
+            "Frecuencia",
+            "Debían continuar",
+            "Pérdidas",
+            "Reinscritos",
+            "Tasa",
+          ],
+
+          getDropoutFrequencyRows()
+        )}
+      `;
+    }
+
+
+    if (
+      exportScope ===
+        "combined" ||
+      exportScope ===
+        "list"
+    ) {
+      const {
+        headers,
+        rows,
+      } =
+        getListExportTable();
+
+
+      body += `
+        <section class="${
+          exportScope ===
+          "combined"
+            ? "page-break"
+            : ""
+        }">
+
+          <h2>
+            ${escapeHtml(
+              currentListTitle
+            )}
+          </h2>
+
+          <p class="meta">
+            Filtros:
+            ${escapeHtml(
+              getFilterDescription()
+            )}
+          </p>
+
+          <p class="meta">
+            Registros:
+            ${filteredData.length}
+          </p>
+
+          ${buildHtmlTable(
+            headers,
+            rows
+          )}
+
+        </section>
+      `;
+    }
+
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+
+      <html lang="es">
+        <head>
+          <meta charset="UTF-8" />
+
+          <title>
+            Dashboard de Continuidad
+          </title>
+
+          <style>
+            @page {
+              size: landscape;
+              margin: 10mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family:
+                Arial,
+                Helvetica,
+                sans-serif;
+
+              color: #0f172a;
+
+              margin: 0;
+
+              font-size: 10px;
+            }
+
+            h1 {
+              text-align: center;
+              font-size: 22px;
+              margin-bottom: 4px;
+            }
+
+            h2 {
+              font-size: 15px;
+              margin-top: 20px;
+              margin-bottom: 8px;
+            }
+
+            .meta {
+              color: #64748b;
+              margin: 3px 0 8px 0;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 15px;
+            }
+
+            th,
+            td {
+              border: 1px solid #cbd5e1;
+              padding: 5px;
+              text-align: left;
+              vertical-align: top;
+              word-break: break-word;
+            }
+
+            th {
+              background: #e2e8f0;
+              font-weight: 700;
+            }
+
+            .page-break {
+              break-before: page;
+              page-break-before: always;
+            }
+          </style>
+        </head>
+
+        <body>
+          ${body}
+        </body>
+      </html>
+    `);
+
+
+    printWindow.document.close();
+
+
+    window.setTimeout(
+      () => {
+        printWindow.focus();
+
+        printWindow.print();
+      },
+      250
+    );
+  };
+
 
   /* =======================================================
      PANTALLA DE CARGA
      ======================================================= */
 
   if (
-    activeTab === "upload"
+    activeTab ===
+    "upload"
   ) {
     return (
       <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
+
         <header className="mb-6 pb-4 border-b border-slate-200">
+
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+
             <Upload className="h-6 w-6 text-blue-600" />
 
-            Dashboard de Continuidad - Carga de Datos
+            Dashboard de Continuidad
+
           </h1>
 
           <p className="text-slate-500 text-sm mt-1">
-            Carga los listados del período anterior y del período actual.
+
+            Carga las listas del período anterior y del período nuevo.
+
           </p>
+
+          <p className="text-slate-400 text-xs mt-1">
+
+            Puedes cargar una sola frecuencia, varias frecuencias o todas las listas de Niños, Jóvenes y Adultos al mismo tiempo.
+
+          </p>
+
         </header>
 
+
         {errorMsg && (
+
           <div className="mb-4 p-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+
             <strong>
-              Error de validación:
+              Error:
             </strong>{" "}
+
             {errorMsg}
+
           </div>
+
         )}
 
-        {qualityData?.critical?.length >
-          0 && (
-          <div className="mb-4 p-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
-            <p className="font-bold mb-2">
-              Problemas críticos detectados
-            </p>
-
-            <ul className="list-disc pl-5 space-y-1">
-              {qualityData.critical.map(
-                (
-                  message,
-                  index
-                ) => (
-                  <li key={index}>
-                    {message}
-                  </li>
-                )
-              )}
-            </ul>
-          </div>
-        )}
 
         <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+
           <div className="font-bold flex items-center gap-2 mb-1">
+
             <ShieldCheck className="h-4 w-4" />
 
-            Validación estricta activada
+            Validación de datos activada
+
           </div>
 
           <p>
-            Si falta un archivo, una identificación, un nivel o existe una inconsistencia crítica, el sistema detendrá el análisis antes de mostrar KPIs.
+
+            El sistema identifica automáticamente Martes y Jueves, Miércoles y Viernes, Lunes, Sabatino, Intensivo y Semi Intensivo, incluyendo variantes de escritura reconocibles.
+
           </p>
+
         </div>
 
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
           {/* PERÍODO ANTERIOR */}
 
           <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+
             <div className="flex items-center justify-between mb-3">
+
               <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-semibold">
-                Período ANTERIOR
+
+                PERÍODO ANTERIOR
+
               </span>
+
 
               <button
                 type="button"
                 onClick={() =>
-                  setPdfOldFiles([])
+                  setPdfOldFiles(
+                    []
+                  )
                 }
                 className="text-slate-500 hover:text-red-600 text-sm inline-flex items-center gap-2"
               >
+
                 <Trash2 className="h-4 w-4" />
 
-                Eliminar Todos
+                Eliminar todos
+
               </button>
+
             </div>
 
-            <label className="block text-xs font-bold text-slate-600 mb-1">
-              Identificación del Intensivo
-            </label>
-
-            <select
-              value={
-                oldIntensivoLabel
-              }
-              onChange={(event) =>
-                setOldIntensivoLabel(
-                  event.target.value
-                )
-              }
-              className="w-full mb-4 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-            >
-              <option value="INTENSIVO A">
-                INTENSIVO A
-              </option>
-
-              <option value="INTENSIVO B">
-                INTENSIVO B
-              </option>
-
-              <option value="INTENSIVO">
-                INTENSIVO
-              </option>
-            </select>
 
             <input
               type="file"
               accept="application/pdf"
               multiple
               onChange={(event) => {
+
                 const files =
                   Array.from(
-                    event.target.files ||
+                    event
+                      .target
+                      .files ||
                       []
                   );
+
 
                 setPdfOldFiles(
                   (previous) =>
@@ -3239,35 +5002,48 @@ const DashboardContinuidad = () => {
                     )
                 );
 
+
                 event.target.value =
                   "";
+
               }}
               className="block w-full text-sm"
             />
 
-            <div className="text-xs text-slate-500 mt-2">
+
+            <p className="text-xs text-slate-500 mt-2">
+
               {pdfOldFiles.length
-                ? `Seleccionados: ${pdfOldFiles.length}`
+                ? `${pdfOldFiles.length} PDF(s) seleccionado(s)`
                 : "No hay PDFs seleccionados."}
-            </div>
+
+            </p>
+
 
             {pdfOldFiles.length >
               0 && (
-              <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
+
+              <ul className="mt-3 space-y-2 max-h-56 overflow-y-auto pr-2">
+
                 {pdfOldFiles.map(
                   (
                     file,
                     index
                   ) => (
+
                     <li
                       key={fileKey(
                         file
                       )}
                       className="flex items-center justify-between gap-3 text-xs bg-slate-50 p-2 rounded"
                     >
+
                       <span className="text-slate-700 truncate">
+
                         {file.name}
+
                       </span>
+
 
                       <button
                         type="button"
@@ -3276,76 +5052,71 @@ const DashboardContinuidad = () => {
                             index
                           )
                         }
-                        className="text-slate-500 hover:text-red-600 inline-flex items-center"
+                        className="text-slate-500 hover:text-red-600"
                       >
+
                         <Trash2 className="h-4 w-4" />
+
                       </button>
+
                     </li>
+
                   )
                 )}
+
               </ul>
+
             )}
+
           </div>
 
-          {/* PERÍODO ACTUAL */}
+
+          {/* PERÍODO NUEVO */}
 
           <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+
             <div className="flex items-center justify-between mb-3">
+
               <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-semibold">
-                Período ACTUAL
+
+                PERÍODO NUEVO
+
               </span>
+
 
               <button
                 type="button"
                 onClick={() =>
-                  setPdfNewFiles([])
+                  setPdfNewFiles(
+                    []
+                  )
                 }
                 className="text-slate-500 hover:text-red-600 text-sm inline-flex items-center gap-2"
               >
+
                 <Trash2 className="h-4 w-4" />
 
-                Eliminar Todos
+                Eliminar todos
+
               </button>
+
             </div>
 
-            <label className="block text-xs font-bold text-slate-600 mb-1">
-              Identificación del Intensivo
-            </label>
-
-            <select
-              value={
-                newIntensivoLabel
-              }
-              onChange={(event) =>
-                setNewIntensivoLabel(
-                  event.target.value
-                )
-              }
-              className="w-full mb-4 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
-            >
-              <option value="INTENSIVO A">
-                INTENSIVO A
-              </option>
-
-              <option value="INTENSIVO B">
-                INTENSIVO B
-              </option>
-
-              <option value="INTENSIVO">
-                INTENSIVO
-              </option>
-            </select>
 
             <input
               type="file"
               accept="application/pdf"
               multiple
               onChange={(event) => {
+
                 const files =
                   Array.from(
-                    event.target.files ||
+                    event
+                      .target
+                      .files ||
                       []
                   );
+
 
                 setPdfNewFiles(
                   (previous) =>
@@ -3355,35 +5126,48 @@ const DashboardContinuidad = () => {
                     )
                 );
 
+
                 event.target.value =
                   "";
+
               }}
               className="block w-full text-sm"
             />
 
-            <div className="text-xs text-slate-500 mt-2">
+
+            <p className="text-xs text-slate-500 mt-2">
+
               {pdfNewFiles.length
-                ? `Seleccionados: ${pdfNewFiles.length}`
+                ? `${pdfNewFiles.length} PDF(s) seleccionado(s)`
                 : "No hay PDFs seleccionados."}
-            </div>
+
+            </p>
+
 
             {pdfNewFiles.length >
               0 && (
-              <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
+
+              <ul className="mt-3 space-y-2 max-h-56 overflow-y-auto pr-2">
+
                 {pdfNewFiles.map(
                   (
                     file,
                     index
                   ) => (
+
                     <li
                       key={fileKey(
                         file
                       )}
                       className="flex items-center justify-between gap-3 text-xs bg-slate-50 p-2 rounded"
                     >
+
                       <span className="text-slate-700 truncate">
+
                         {file.name}
+
                       </span>
+
 
                       <button
                         type="button"
@@ -3392,27 +5176,40 @@ const DashboardContinuidad = () => {
                             index
                           )
                         }
-                        className="text-slate-500 hover:text-red-600 inline-flex items-center"
+                        className="text-slate-500 hover:text-red-600"
                       >
+
                         <Trash2 className="h-4 w-4" />
+
                       </button>
+
                     </li>
+
                   )
                 )}
+
               </ul>
+
             )}
+
           </div>
+
         </div>
 
+
         <div className="mt-6 flex flex-col sm:flex-row gap-3">
+
           <button
             type="button"
             onClick={
               processPdfs
             }
-            disabled={loading}
+            disabled={
+              loading
+            }
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-6 py-3 rounded-xl font-bold shadow flex items-center gap-2"
           >
+
             <RefreshCw
               className={`h-5 w-5 ${
                 loading
@@ -3423,302 +5220,491 @@ const DashboardContinuidad = () => {
 
             {loading
               ? "Procesando y validando..."
-              : "Procesar y Comparar"}
+              : "Procesar y comparar"}
+
           </button>
+
 
           <button
             type="button"
-            onClick={resetAll}
+            onClick={
+              resetAll
+            }
             className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-6 py-3 rounded-xl font-semibold"
           >
+
             Reiniciar
+
           </button>
+
         </div>
+
       </div>
     );
   }
+
 
   /* =======================================================
      DASHBOARD
      ======================================================= */
 
   return (
-    <div
-      className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800 relative print:bg-white print:p-0"
-      id="dashboard-content"
-    >
-      {/* HEADER */}
+    <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
 
-      <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4 print:hidden">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2">
-            <Users className="h-8 w-8 text-blue-600" />
 
-            Dashboard de Continuidad
-          </h1>
+      {/* ===================================================
+          HEADER
+          =================================================== */}
 
-          <p className="text-xs text-slate-500 mt-1">
-            Período anterior:{" "}
-            <strong>
-              {oldIntensivoLabel}
-            </strong>{" "}
-            · Período actual:{" "}
-            <strong>
-              {newIntensivoLabel}
-            </strong>
-          </p>
+      <header className="mb-6 border-b border-slate-200 pb-4">
 
-          <p className="text-[10px] text-slate-400 mt-1">
-            Motor de reglas:{" "}
-            {CONTINUIDAD_RULES_VERSION}
-          </p>
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+
+          <div>
+
+            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2">
+
+              <Users className="h-8 w-8 text-blue-600" />
+
+              Dashboard de Continuidad
+
+            </h1>
+
+            <p className="text-xs text-slate-500 mt-1">
+
+              Motor de reglas:{" "}
+              {CONTINUIDAD_RULES_VERSION}
+
+            </p>
+
+          </div>
+
+
+          <div className="flex flex-wrap gap-2 items-center">
+
+
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab(
+                  "upload"
+                )
+              }
+              className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-lg text-xs font-medium"
+            >
+
+              <Upload className="h-4 w-4" />
+
+              PDFs
+
+            </button>
+
+
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              ref={
+                fileInputRef
+              }
+              className="hidden"
+              onChange={
+                importExcel
+              }
+            />
+
+
+            <button
+              type="button"
+              onClick={() =>
+                fileInputRef
+                  .current
+                  ?.click()
+              }
+              className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg text-xs font-medium"
+            >
+
+              <FileUp className="h-4 w-4" />
+
+              Importar CRM
+
+            </button>
+
+
+            <div className="flex items-center gap-2 border border-slate-200 bg-white rounded-lg px-2">
+
+              <Download className="h-4 w-4 text-slate-400" />
+
+              <select
+                value={
+                  exportScope
+                }
+                onChange={(event) =>
+                  setExportScope(
+                    event
+                      .target
+                      .value
+                  )
+                }
+                className="py-2 text-xs bg-transparent outline-none text-slate-700"
+              >
+
+                <option value="combined">
+
+                  Indicadores + lista actual
+
+                </option>
+
+                <option value="indicators">
+
+                  Solo indicadores
+
+                </option>
+
+                <option value="list">
+
+                  Solo lista actual
+
+                </option>
+
+              </select>
+
+            </div>
+
+
+            <button
+              type="button"
+              onClick={
+                exportExcel
+              }
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-medium"
+            >
+
+              <Save className="h-4 w-4" />
+
+              Excel
+
+            </button>
+
+
+            <button
+              type="button"
+              onClick={
+                generateWordReport
+              }
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium"
+            >
+
+              <File className="h-4 w-4" />
+
+              Word
+
+            </button>
+
+
+            <button
+              type="button"
+              onClick={
+                generatePDFReport
+              }
+              className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-medium"
+            >
+
+              <FileText className="h-4 w-4" />
+
+              PDF
+
+            </button>
+
+
+            <button
+              type="button"
+              onClick={
+                printReport
+              }
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg text-xs font-medium"
+            >
+
+              <Printer className="h-4 w-4" />
+
+              Imprimir
+
+            </button>
+
+          </div>
+
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() =>
-              setActiveTab(
-                "upload"
-              )
-            }
-            className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-lg shadow-sm text-xs font-medium"
-          >
-            <Upload className="h-4 w-4" />
 
-            PDFs
-          </button>
+        <p className="text-xs text-slate-400 mt-3">
 
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            ref={fileInputRef}
-            className="hidden"
-            onChange={
-              importExcel
-            }
-          />
+          Exportación seleccionada:{" "}
 
-          <button
-            type="button"
-            onClick={() =>
-              fileInputRef.current?.click()
-            }
-            className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg shadow-sm text-xs font-medium"
-          >
-            <FileUp className="h-4 w-4" />
+          <strong className="text-slate-600">
 
-            Importar BD
-          </button>
+            {EXPORT_SCOPE_LABELS[
+              exportScope
+            ]}
 
-          <button
-            type="button"
-            onClick={
-              exportExcel
-            }
-            disabled={
-              !filteredData.length
-            }
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg shadow text-xs font-medium"
-          >
-            <Save className="h-4 w-4" />
+          </strong>
 
-            Excel
-          </button>
+          {" · "}
 
-          <button
-            type="button"
-            onClick={
-              generateWordReport
-            }
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium"
-          >
-            <File className="h-4 w-4" />
+          Lista actual:{" "}
 
-            Word
-          </button>
+          <strong className="text-slate-600">
 
-          <button
-            type="button"
-            onClick={
-              generatePDFReport
-            }
-            className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg shadow text-xs font-medium"
-          >
-            <FileText className="h-4 w-4" />
+            {currentListTitle}
 
-            PDF
-          </button>
+          </strong>
 
-          <button
-            type="button"
-            onClick={() =>
-              window.print()
-            }
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg shadow text-xs font-medium"
-          >
-            <Printer className="h-4 w-4" />
+        </p>
 
-            Imprimir
-          </button>
-        </div>
       </header>
 
-      {/* CONCILIACIÓN */}
+
+      {errorMsg && (
+
+        <div className="mb-5 p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm">
+
+          {errorMsg}
+
+        </div>
+
+      )}
+
+
+      {/* ===================================================
+          CONCILIACIÓN
+          =================================================== */}
 
       {stats.reconciliationOk && (
-        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3 print:hidden">
+
+        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-3">
+
           <ShieldCheck className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
 
           <div className="text-sm">
+
             <p className="font-bold text-emerald-800">
+
               Conciliación interna correcta
+
             </p>
 
             <p className="text-emerald-700 mt-1">
-              Anterior:{" "}
+
+              Período anterior:{" "}
+
               <strong>
                 {stats.oldTotal}
-              </strong>{" "}
-              ={" "}
+              </strong>
+
+              {" · "}
+
+              Debían continuar:{" "}
+
               <strong>
-                {stats.eligibleOld}
-              </strong>{" "}
-              elegibles +{" "}
-              <strong>
-                {stats.graduados}
-              </strong>{" "}
-              graduandos. Elegibles:{" "}
-              <strong>
-                {stats.eligibleOld}
-              </strong>{" "}
-              ={" "}
+                {stats.shouldContinue}
+              </strong>
+
+              {" · "}
+
+              Reinscritos:{" "}
+
               <strong>
                 {stats.reenrolled}
-              </strong>{" "}
-              reinscritos +{" "}
+              </strong>
+
+              {" · "}
+
+              Pérdidas:{" "}
+
               <strong>
                 {stats.lost}
-              </strong>{" "}
-              fugas. Actual:{" "}
+              </strong>
+
+              {" · "}
+
+              Graduandos:{" "}
+
+              <strong>
+                {stats.graduados}
+              </strong>
+
+              {" · "}
+
+              Período nuevo:{" "}
+
               <strong>
                 {stats.newTotal}
-              </strong>{" "}
-              estudiantes.
+              </strong>
+
             </p>
+
           </div>
+
         </div>
+
       )}
 
-      {/* ADVERTENCIAS */}
 
-      {qualityData?.warnings?.length >
+      {/* ===================================================
+          ADVERTENCIAS
+          =================================================== */}
+
+      {qualityData
+        ?.warnings
+        ?.length >
         0 && (
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 print:hidden">
+
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+
           <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
 
           <div className="text-sm text-amber-900">
+
             <p className="font-bold mb-1">
+
               Advertencias de calidad de datos
+
             </p>
 
             <ul className="list-disc pl-5 space-y-1">
+
               {qualityData.warnings.map(
                 (
                   warning,
                   index
                 ) => (
+
                   <li key={index}>
+
                     {warning}
+
                   </li>
+
                 )
               )}
+
             </ul>
+
           </div>
+
         </div>
+
       )}
+
 
       {/* ===================================================
           INDICADORES
           =================================================== */}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* REINSCRITOS */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500 flex flex-col justify-between print:border print:shadow-none">
+
+        {/* TOTAL REINSCRITOS */}
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500">
+
           <div className="flex justify-between items-start">
+
             <p className="text-sm font-semibold text-slate-500">
+
               Total Reinscritos
+
             </p>
 
-            <CheckCircle className="h-5 w-5 text-emerald-500 print:hidden" />
+            <CheckCircle className="h-5 w-5 text-emerald-500" />
+
           </div>
 
           <div className="mt-2 flex items-baseline gap-2">
+
             <h3 className="text-4xl font-black text-emerald-600">
+
               {stats.reenrolledPct}%
+
             </h3>
 
-            <p className="text-lg font-bold text-slate-700">
+            <span className="text-lg font-bold text-slate-700">
+
               ({stats.reenrolled})
-            </p>
+
+            </span>
+
           </div>
 
-          <p className="text-xs text-slate-400 font-medium">
+          <p className="text-xs text-slate-400">
+
             De{" "}
-            {stats.eligibleOld}{" "}
-            elegibles para continuidad
+            {stats.shouldContinue}{" "}
+            estudiantes del período anterior que debían continuar
+
           </p>
+
         </div>
+
 
         {/* PÉRDIDA */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500 flex flex-col justify-between print:border print:shadow-none">
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500">
+
           <div className="flex justify-between items-start">
+
             <p className="text-sm font-semibold text-slate-500">
+
               Total Pérdida
+
             </p>
 
-            <XCircle className="h-5 w-5 text-rose-500 print:hidden" />
+            <XCircle className="h-5 w-5 text-rose-500" />
+
           </div>
 
           <div className="mt-2 flex items-baseline gap-2">
+
             <h3 className="text-4xl font-black text-rose-600">
+
               {stats.lostPct}%
+
             </h3>
 
-            <p className="text-lg font-bold text-slate-700">
+            <span className="text-lg font-bold text-slate-700">
+
               ({stats.lost})
-            </p>
+
+            </span>
+
           </div>
 
-          <p className="text-xs text-slate-400 font-medium">
+          <p className="text-xs text-slate-400">
+
             De{" "}
-            {stats.eligibleOld}{" "}
-            elegibles para continuidad
+            {stats.shouldContinue}{" "}
+            estudiantes del período anterior que debían continuar
+
           </p>
+
         </div>
 
-        {/* NUEVOS VS REGULARES */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
-            <p className="text-sm font-semibold text-slate-500">
-              Fuga: Nuevos vs Regulares
-            </p>
+        {/* L01 VS REGULARES */}
 
-            <AlertTriangle className="h-5 w-5 text-amber-400 print:hidden" />
-          </div>
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
 
-          <div className="mt-2 flex items-end gap-4">
-            <div
-              className={`cursor-pointer px-2 py-1 rounded transition-colors ${
-                filterFugaType ===
-                "Nuevos"
-                  ? "bg-rose-100 ring-2 ring-rose-400"
-                  : "hover:bg-slate-100"
-              }`}
+          <p className="text-sm font-semibold text-slate-500">
+
+            Fuga: Nuevos vs Regulares
+
+          </p>
+
+
+          <div className="mt-3 flex gap-4 items-end">
+
+            <button
+              type="button"
               onClick={() => {
+
                 setTableView(
                   "desercion"
                 );
@@ -3730,36 +5716,53 @@ const DashboardContinuidad = () => {
                       ? "All"
                       : "Nuevos"
                 );
+
               }}
+              className={`text-left px-2 py-1 rounded ${
+                filterFugaType ===
+                "Nuevos"
+                  ? "bg-rose-100 ring-2 ring-rose-300"
+                  : ""
+              }`}
             >
+
               <div>
+
                 <span className="text-2xl font-black text-rose-600">
-                  {stats.nuevosLost}
+
+                  {stats.level1Lost}
+
                 </span>
 
-                <span className="text-xs font-bold text-slate-500 ml-1">
+                <span className="ml-1 text-xs font-bold text-slate-500">
+
                   L01
+
                 </span>
+
               </div>
 
-              <p className="text-xs text-rose-500 font-semibold">
-                {stats.nuevosLostPct}% de{" "}
-                {stats.nuevosEligible}
+              <p className="text-xs text-rose-500">
+
+                {stats.level1LostPct}% de{" "}
+                {stats.previousLevel1}
+
               </p>
-            </div>
 
-            <div className="text-slate-300 pb-4">
+            </button>
+
+
+            <span className="text-slate-300 pb-4">
+
               |
-            </div>
 
-            <div
-              className={`cursor-pointer px-2 py-1 rounded transition-colors ${
-                filterFugaType ===
-                "Regulares"
-                  ? "bg-slate-200 ring-2 ring-slate-400"
-                  : "hover:bg-slate-100"
-              }`}
+            </span>
+
+
+            <button
+              type="button"
               onClick={() => {
+
                 setTableView(
                   "desercion"
                 );
@@ -3771,327 +5774,513 @@ const DashboardContinuidad = () => {
                       ? "All"
                       : "Regulares"
                 );
+
               }}
+              className={`text-left px-2 py-1 rounded ${
+                filterFugaType ===
+                "Regulares"
+                  ? "bg-slate-200 ring-2 ring-slate-300"
+                  : ""
+              }`}
             >
+
               <div>
+
                 <span className="text-2xl font-black text-slate-700">
-                  {stats.regularesLost}
+
+                  {stats.regularLost}
+
                 </span>
 
-                <span className="text-xs font-bold text-slate-500 ml-1">
+                <span className="ml-1 text-xs font-bold text-slate-500">
+
                   Regulares
+
                 </span>
+
               </div>
 
-              <p className="text-xs text-slate-500 font-semibold">
-                {stats.regularesLostPct}% de{" "}
-                {stats.regularesEligible}
+              <p className="text-xs text-slate-500">
+
+                {stats.regularLostPct}% de{" "}
+                {stats.regularPrevious}
+
               </p>
-            </div>
+
+            </button>
+
           </div>
 
-          {filterFugaType !==
-            "All" && (
-            <p className="text-xs text-blue-500 font-semibold mt-1">
-              Filtro activo. Clic para quitar.
-            </p>
-          )}
         </div>
+
 
         {/* RESCATE */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-b-4 border-b-blue-500 flex flex-col justify-between print:border print:shadow-none">
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-b-4 border-b-blue-500">
+
           <div className="flex justify-between items-start">
+
             <p className="text-sm font-semibold text-slate-500">
+
               Tasa Éxito Rescate
+
             </p>
 
-            <Phone className="h-5 w-5 text-blue-500 print:hidden" />
+            <Phone className="h-5 w-5 text-blue-500" />
+
           </div>
 
           <div className="mt-2">
+
             <h3 className="text-3xl font-black text-blue-600">
+
               {winBackRate ===
               null
                 ? "—"
                 : `${winBackRate}%`}
+
             </h3>
 
-            <p className="text-xs text-slate-400 font-medium">
+            <p className="text-xs text-slate-400">
+
               {contactedCount ===
               0
                 ? "Sin contactos registrados"
                 : `${rescuedCount} de ${contactedCount} contactados`}
+
             </p>
+
           </div>
+
         </div>
 
-        {/* MAYOR VOLUMEN */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
+        {/* HORARIO VOLUMEN */}
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+
+          <div className="flex justify-between">
+
             <p className="text-sm font-semibold text-slate-500">
-              Mayor Volumen de Fugas
+
+              Horario Crítico por Volumen
+
             </p>
 
-            <Clock className="h-5 w-5 text-amber-500 print:hidden" />
+            <Clock className="h-5 w-5 text-amber-500" />
+
           </div>
 
-          <div className="mt-2">
-            <h3
-              className="text-lg font-black text-slate-800"
-              title={
-                stats.topHorarioFugas
-              }
-            >
-              {stats.topHorarioFugas}
-            </h3>
+          <h3 className="mt-3 text-lg font-black text-slate-800">
 
-            <p className="text-xs text-slate-400 font-medium">
-              {stats.topHorarioFugasCount} pérdida(s) ·{" "}
-              {stats.topHorarioFugasRate}%
-            </p>
-          </div>
+            {stats.topHorarioFugas}
+
+          </h3>
+
+          <p className="text-xs text-slate-400">
+
+            {stats.topHorarioFugasCount} pérdida(s) ·{" "}
+            {stats.topHorarioFugasRate}%
+
+          </p>
+
         </div>
 
-        {/* MAYOR TASA */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
+        {/* HORARIO TASA */}
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+
+          <div className="flex justify-between">
+
             <p className="text-sm font-semibold text-slate-500">
-              Mayor Tasa de Fuga
+
+              Horario Crítico por Tasa
+
             </p>
 
-            <AlertTriangle className="h-5 w-5 text-orange-500 print:hidden" />
+            <AlertTriangle className="h-5 w-5 text-orange-500" />
+
           </div>
 
-          <div className="mt-2">
-            <h3 className="text-lg font-black text-slate-800">
-              {stats.topHorarioRate}
-            </h3>
+          <h3 className="mt-3 text-lg font-black text-slate-800">
 
-            <p className="text-xs text-slate-400 font-medium">
-              {stats.topHorarioRatePct}% ·{" "}
-              {stats.topHorarioRateLost} de{" "}
-              {stats.topHorarioRateEligible}
-            </p>
-          </div>
+            {stats.topHorarioRate}
+
+          </h3>
+
+          <p className="text-xs text-slate-400">
+
+            {stats.topHorarioRatePct}% ·{" "}
+
+            {stats.topHorarioRateLost} de{" "}
+
+            {stats.topHorarioRatePrevious}
+
+          </p>
+
         </div>
+
 
         {/* DENSIDAD */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+
+          <div className="flex justify-between">
+
             <p className="text-sm font-semibold text-slate-500">
+
               Densidad Promedio
+
             </p>
 
-            <Users className="h-5 w-5 text-indigo-400 print:hidden" />
+            <Users className="h-5 w-5 text-indigo-400" />
+
           </div>
 
-          <div className="mt-2">
-            <h3 className="text-3xl font-black text-slate-800">
-              {stats.avgDensity}
-            </h3>
+          <h3 className="mt-3 text-3xl font-black text-slate-800">
 
-            <p className="text-xs text-slate-400 font-medium">
-              Alumnos por sección ·{" "}
-              {stats.activeSections} secciones
-            </p>
-          </div>
+            {stats.avgDensity}
+
+          </h3>
+
+          <p className="text-xs text-slate-400">
+
+            Alumnos por sección ·{" "}
+
+            {stats.activeSections} secciones
+
+          </p>
+
         </div>
 
-        {/* TRANSICIÓN */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none">
-          <div className="flex justify-between items-start">
+        {/* TRANSICIONES */}
+
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+
+          <div className="flex justify-between">
+
             <p className="text-sm font-semibold text-slate-500">
-              Transición Categorías
+
+              Transición de Categorías
+
             </p>
 
-            <TrendingUp className="h-5 w-5 text-emerald-400 print:hidden" />
+            <TrendingUp className="h-5 w-5 text-emerald-500" />
+
           </div>
 
-          {!stats.categoryTransitionsAvailable ? (
-            <div className="mt-3">
-              <h3 className="text-xl font-black text-slate-500">
-                N/A
-              </h3>
 
-              <p className="text-xs text-slate-400">
-                Las categorías cargadas no permiten evaluar transiciones.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-2">
-              <div
-                className="flex justify-between items-center bg-emerald-50 px-2 py-1 rounded mb-1 cursor-pointer hover:ring-2 ring-emerald-400 transition-all"
-                onClick={() => {
-                  setTableView(
-                    "transNinosJovenes"
-                  );
+          <div className="mt-3 space-y-2">
 
-                  resetFilters();
-                }}
-              >
-                <span className="text-xs font-bold text-emerald-700">
-                  Niños ➔ Jóvenes
-                </span>
 
-                <span className="text-lg font-black text-emerald-600">
-                  {stats.transNinosJovenes}
-                </span>
-              </div>
+            <button
+              type="button"
+              onClick={() => {
 
-              <div
-                className="flex justify-between items-center bg-blue-50 px-2 py-1 rounded cursor-pointer hover:ring-2 ring-blue-400 transition-all"
-                onClick={() => {
-                  setTableView(
-                    "transJovenesAdultos"
-                  );
+                setTableView(
+                  "transNinosJovenes"
+                );
 
-                  resetFilters();
-                }}
-              >
-                <span className="text-xs font-bold text-blue-700">
-                  Jóvenes ➔ Adultos
-                </span>
+                resetFilters();
 
-                <span className="text-lg font-black text-blue-600">
-                  {stats.transJovenesAdultos}
-                </span>
-              </div>
-            </div>
-          )}
+              }}
+              className="w-full flex justify-between bg-emerald-50 px-2 py-1.5 rounded"
+            >
+
+              <span className="text-xs font-bold text-emerald-700">
+
+                Niños → Jóvenes
+
+              </span>
+
+              <strong className="text-emerald-600">
+
+                {stats.transNinosJovenes}
+
+              </strong>
+
+            </button>
+
+
+            <button
+              type="button"
+              onClick={() => {
+
+                setTableView(
+                  "transNinosAdultos"
+                );
+
+                resetFilters();
+
+              }}
+              className="w-full flex justify-between bg-cyan-50 px-2 py-1.5 rounded"
+            >
+
+              <span className="text-xs font-bold text-cyan-700">
+
+                Niños → Adultos
+
+              </span>
+
+              <strong className="text-cyan-600">
+
+                {stats.transNinosAdultos}
+
+              </strong>
+
+            </button>
+
+
+            <button
+              type="button"
+              onClick={() => {
+
+                setTableView(
+                  "transJovenesAdultos"
+                );
+
+                resetFilters();
+
+              }}
+              className="w-full flex justify-between bg-blue-50 px-2 py-1.5 rounded"
+            >
+
+              <span className="text-xs font-bold text-blue-700">
+
+                Jóvenes → Adultos
+
+              </span>
+
+              <strong className="text-blue-600">
+
+                {stats.transJovenesAdultos}
+
+              </strong>
+
+            </button>
+
+          </div>
+
         </div>
+
 
         {/* MOVIMIENTOS */}
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between print:border print:shadow-none md:col-span-2 lg:col-span-4">
-          <div className="flex justify-between items-start">
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 md:col-span-2 lg:col-span-4">
+
+          <div className="flex justify-between">
+
             <p className="text-sm font-semibold text-slate-500">
-              Movimientos Externos
+
+              Movimientos del Período
+
             </p>
 
-            <GraduationCap className="h-5 w-5 text-indigo-400 print:hidden" />
+            <GraduationCap className="h-5 w-5 text-indigo-400" />
+
           </div>
 
+
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+
+
             <button
               type="button"
-              className="text-left bg-indigo-50 rounded-lg px-3 py-2 hover:ring-2 ring-indigo-300"
               onClick={() => {
+
                 setTableView(
                   "graduados"
                 );
 
                 resetFilters();
+
               }}
+              className="text-left bg-indigo-50 rounded-lg px-3 py-3 hover:ring-2 ring-indigo-300"
             >
+
               <p className="text-xs font-bold text-indigo-700">
+
                 Graduandos
+
               </p>
 
               <p className="text-2xl font-black text-indigo-600">
+
                 {stats.graduados}
+
               </p>
 
               <p className="text-xs text-indigo-500">
-                Nivel terminal del período anterior
+
+                Adultos L20 anterior que no aparecen en el nuevo período
+
               </p>
+
             </button>
+
 
             <button
               type="button"
-              className="text-left bg-emerald-50 rounded-lg px-3 py-2 hover:ring-2 ring-emerald-300"
               onClick={() => {
+
                 setTableView(
                   "nuevosL01"
                 );
 
                 resetFilters();
+
               }}
+              className="text-left bg-emerald-50 rounded-lg px-3 py-3 hover:ring-2 ring-emerald-300"
             >
+
               <p className="text-xs font-bold text-emerald-700">
-                Ingresos Nivel 1
+
+                Ingresos Nivel 01
+
               </p>
 
               <p className="text-2xl font-black text-emerald-600">
-                {stats.nuevosL01}
+
+                {stats.currentLevel1}
+
               </p>
 
               <p className="text-xs text-emerald-500">
-                Nuevos ingresos según regla L01
+
+                Todos los L01 de las listas nuevas
+
               </p>
+
             </button>
+
 
             <button
               type="button"
-              className="text-left bg-sky-50 rounded-lg px-3 py-2 hover:ring-2 ring-sky-300"
               onClick={() => {
+
                 setTableView(
-                  "nivelacion"
+                  "noPresentesL02"
                 );
 
                 resetFilters();
+
               }}
+              className="text-left bg-sky-50 rounded-lg px-3 py-3 hover:ring-2 ring-sky-300"
             >
+
               <p className="text-xs font-bold text-sky-700">
-                Ingresos L02+
+
+                Estudiantes no presentes en el período anterior L02+
+
               </p>
 
               <p className="text-2xl font-black text-sky-600">
-                {stats.nuevosNivelacion}
+
+                {stats.notPresentPreviousL02Plus}
+
               </p>
 
               <p className="text-xs text-sky-500">
-                No presentes en período anterior
+
+                No implica automáticamente nivelación
+
               </p>
+
             </button>
+
 
             <button
               type="button"
-              className="text-left bg-amber-50 rounded-lg px-3 py-2 hover:ring-2 ring-amber-300"
               onClick={() => {
+
                 setTableView(
                   "cambios"
                 );
 
                 resetFilters();
+
               }}
+              className="text-left bg-amber-50 rounded-lg px-3 py-3 hover:ring-2 ring-amber-300"
             >
+
               <p className="text-xs font-bold text-amber-700">
-                Cambios Frecuencia
+
+                Cambios de Frecuencia
+
               </p>
 
               <p className="text-2xl font-black text-amber-600">
+
                 {stats.cambiosFreq}
+
               </p>
 
               <p className="text-xs text-amber-500">
-                Cambios reales de familia
+
+                Ej. Sabatino → Martes y Jueves
+
               </p>
+
             </button>
+
           </div>
+
         </div>
+
       </div>
+
+
+      {/* L20 REAPARECIDOS */}
+
+      {stats.terminalReappeared >
+        0 && (
+
+        <div className="mb-6 p-4 rounded-xl border border-orange-200 bg-orange-50 text-orange-800 flex gap-3">
+
+          <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+
+          <div className="text-sm">
+
+            <strong>
+
+              Revisión académica:
+
+            </strong>{" "}
+
+            {stats.terminalReappeared} estudiante(s) de Adultos L20 del período anterior aparecen nuevamente en el período nuevo. No fueron contados como graduandos.
+
+          </div>
+
+        </div>
+
+      )}
+
 
       {/* ===================================================
           GRÁFICOS
           =================================================== */}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 print:break-inside-avoid">
-        {/* DESERCIÓN POR NIVEL */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
 
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+
+          <div className="flex flex-col sm:flex-row justify-between gap-3 mb-4">
+
             <h3 className="text-lg font-bold text-slate-800">
+
               Volumen de Deserción por Nivel
+
             </h3>
 
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg print:hidden flex-wrap">
+
+            <div className="flex gap-1 flex-wrap bg-slate-100 p-1 rounded-lg">
+
               {chartCategories.map(
                 (category) => (
+
                   <button
                     type="button"
                     key={category}
@@ -4100,53 +6289,55 @@ const DashboardContinuidad = () => {
                         category
                       )
                     }
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
+                    className={`px-3 py-1 text-xs rounded ${
                       levelChartCategory ===
                       category
-                        ? "bg-white shadow-sm text-blue-600"
-                        : "text-slate-500 hover:text-slate-700"
+                        ? "bg-white text-blue-600 shadow-sm"
+                        : "text-slate-500"
                     }`}
                   >
+
                     {category ===
                     "All"
                       ? "Todos"
                       : category}
+
                   </button>
+
                 )
               )}
+
             </div>
+
           </div>
 
-          <div className="h-64 w-full">
+
+          <div className="h-64">
+
             <ResponsiveContainer
               width="100%"
               height="100%"
             >
+
               <BarChart
                 data={
                   chartDataLevel
                 }
-                onClick={(event) => {
-                  if (
-                    event?.activeLabel
-                  ) {
-                    setSelectedLevel(
-                      event.activeLabel
-                    );
-                  }
-                }}
               >
+
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  vertical={false}
+                  vertical={
+                    false
+                  }
                 />
 
                 <XAxis
                   dataKey="name"
                   tick={{
-                    fontSize: 10,
+                    fontSize:
+                      10,
                   }}
-                  interval={0}
                 />
 
                 <YAxis
@@ -4155,39 +6346,44 @@ const DashboardContinuidad = () => {
                   }
                 />
 
-                <RechartsTooltip
-                  cursor={{
-                    fill: "#f1f5f9",
-                  }}
-                />
+                <RechartsTooltip />
 
                 <Bar
                   dataKey="count"
                   fill="#3b82f6"
+                  name="Estudiantes"
                   radius={[
                     4,
                     4,
                     0,
                     0,
                   ]}
-                  name="Estudiantes"
                 />
+
               </BarChart>
+
             </ResponsiveContainer>
+
           </div>
+
         </div>
 
-        {/* PIE */}
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-bold text-slate-800">
+
+            <h3 className="text-lg font-bold">
+
               Fuga por{" "}
+
               {pieMode ===
               "horario"
                 ? "Horario"
                 : "Frecuencia"}
+
             </h3>
+
 
             <button
               type="button"
@@ -4200,166 +6396,225 @@ const DashboardContinuidad = () => {
                       : "horario"
                 )
               }
-              className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded print:hidden"
+              className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded"
             >
+
               {pieMode ===
               "horario"
                 ? "Ver por Frecuencia"
                 : "Ver por Horario"}
+
             </button>
+
           </div>
 
-          <div className="h-64 w-full cursor-pointer">
+
+          <div className="h-64">
+
             <ResponsiveContainer
               width="100%"
               height="100%"
             >
+
               <PieChart>
+
                 <Pie
                   data={
                     chartDataPie
                   }
                   cx="50%"
                   cy="50%"
-                  innerRadius={60}
-                  outerRadius={85}
-                  paddingAngle={4}
+                  innerRadius={
+                    60
+                  }
+                  outerRadius={
+                    85
+                  }
+                  paddingAngle={
+                    4
+                  }
                   dataKey="value"
                   onClick={
                     onClickPie
                   }
                 >
+
                   {chartDataPie.map(
                     (
                       entry,
                       index
                     ) => (
+
                       <Cell
-                        key={`cell-${index}`}
+                        key={index}
                         fill={
                           pieMode ===
                           "frecuencia"
-                            ? FRECUENCIA_COLORS[
-                                entry.name
-                              ] ||
-                              "#94a3b8"
+                            ? (
+                                FRECUENCIA_COLORS[
+                                  entry
+                                    .name
+                                ] ||
+                                "#94a3b8"
+                              )
                             : HORARIO_COLORS[
                                 index %
                                   HORARIO_COLORS.length
                               ]
                         }
                       />
+
                     )
                   )}
+
                 </Pie>
 
                 <RechartsTooltip />
 
                 <Legend />
+
               </PieChart>
+
             </ResponsiveContainer>
+
           </div>
+
         </div>
+
       </div>
+
 
       {/* NOTA L02+ */}
 
       {tableView ===
-        "nivelacion" && (
-        <div className="bg-amber-50 border border-amber-200 p-4 mb-4 rounded-lg flex gap-3 text-amber-800 text-sm print:hidden shadow-sm">
+        "noPresentesL02" && (
+
+        <div className="bg-amber-50 border border-amber-200 p-4 mb-4 rounded-lg flex gap-3 text-amber-800 text-sm">
+
           <Info className="h-5 w-5 flex-shrink-0" />
 
           <p>
+
             <strong>
-              Nota Institucional:
+
+              Nota:
+
             </strong>{" "}
-            estos estudiantes no aparecen en el período anterior y están inscritos en L02 o superior. El sistema{" "}
-            <strong>
-              no puede demostrar por sí solo que hayan ingresado mediante prueba de nivelación
-            </strong>
-            . También pueden existir reingresos de períodos más antiguos. Valida su récord en el SGA antes de clasificarlos definitivamente como nivelación.
+
+            esta lista contiene estudiantes del período nuevo en L02 o superior cuya identificación no aparece en el período anterior cargado. El sistema no los clasifica automáticamente como nivelación porque también pueden existir reingresos de períodos más antiguos.
+
           </p>
+
         </div>
+
       )}
 
+
       {/* ===================================================
-          TABLA DINÁMICA
+          TABLA
           =================================================== */}
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:break-before-page">
-        <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row gap-4 items-center justify-between print:hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+
+
+        <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row gap-4 justify-between">
+
+
           <div className="flex items-center gap-2">
+
             <UserPlus className="h-5 w-5 text-slate-400" />
+
 
             <select
               value={
                 tableView
               }
               onChange={(event) => {
+
                 setTableView(
-                  event.target.value
+                  event
+                    .target
+                    .value
                 );
 
                 resetFilters();
+
               }}
-              className="bg-transparent text-lg font-bold text-slate-800 outline-none cursor-pointer border-b-2 border-slate-200 hover:border-blue-500 pb-1"
+              className="bg-transparent text-lg font-bold text-slate-800 outline-none border-b-2 border-slate-200"
             >
-              <option value="desercion">
-                Deserciones (CRM de Fugas)
-              </option>
 
-              <option value="nuevosL01">
-                Ingresos Nivel 1 (L01)
-              </option>
+              {Object.entries(
+                TABLE_VIEW_LABELS
+              ).map(
+                (
+                  [
+                    value,
+                    label,
+                  ]
+                ) => (
 
-              <option value="nivelacion">
-                Ingresos L02+ no presentes anteriormente
-              </option>
+                  <option
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
+                  >
 
-              <option value="cambios">
-                Cambios de Frecuencia
-              </option>
+                    {label}
 
-              <option value="graduados">
-                Graduandos
-              </option>
+                  </option>
 
-              <option value="transNinosJovenes">
-                Transición: Niños ➔ Jóvenes
-              </option>
+                )
+              )}
 
-              <option value="transJovenesAdultos">
-                Transición: Jóvenes ➔ Adultos
-              </option>
             </select>
+
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+
+          <div className="flex flex-wrap gap-2 items-center">
+
+
             <select
               value={
                 selectedCategory
               }
               onChange={(event) =>
                 setSelectedCategory(
-                  event.target.value
+                  event
+                    .target
+                    .value
                 )
               }
-              className="border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white"
+              className="border border-slate-200 rounded-lg px-2 py-2 text-xs"
             >
+
               {filterOptions.categories.map(
                 (value) => (
+
                   <option
-                    key={value}
-                    value={value}
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
                   >
+
                     {value ===
                     "All"
                       ? "Todas las categorías"
                       : value}
+
                   </option>
+
                 )
               )}
+
             </select>
+
 
             <select
               value={
@@ -4367,25 +6622,38 @@ const DashboardContinuidad = () => {
               }
               onChange={(event) =>
                 setSelectedLevel(
-                  event.target.value
+                  event
+                    .target
+                    .value
                 )
               }
-              className="border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white"
+              className="border border-slate-200 rounded-lg px-2 py-2 text-xs"
             >
+
               {filterOptions.levels.map(
                 (value) => (
+
                   <option
-                    key={value}
-                    value={value}
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
                   >
+
                     {value ===
                     "All"
                       ? "Todos los niveles"
                       : value}
+
                   </option>
+
                 )
               )}
+
             </select>
+
 
             <select
               value={
@@ -4393,25 +6661,38 @@ const DashboardContinuidad = () => {
               }
               onChange={(event) =>
                 setSelectedFrecuencia(
-                  event.target.value
+                  event
+                    .target
+                    .value
                 )
               }
-              className="border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white"
+              className="border border-slate-200 rounded-lg px-2 py-2 text-xs"
             >
+
               {filterOptions.frecuencias.map(
                 (value) => (
+
                   <option
-                    key={value}
-                    value={value}
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
                   >
+
                     {value ===
                     "All"
                       ? "Todas las frecuencias"
                       : value}
+
                   </option>
+
                 )
               )}
+
             </select>
+
 
             <select
               value={
@@ -4419,147 +6700,266 @@ const DashboardContinuidad = () => {
               }
               onChange={(event) =>
                 setSelectedHorario(
-                  event.target.value
+                  event
+                    .target
+                    .value
                 )
               }
-              className="border border-slate-200 rounded-lg px-2 py-2 text-xs bg-white"
+              className="border border-slate-200 rounded-lg px-2 py-2 text-xs"
             >
+
               {filterOptions.horarios.map(
                 (value) => (
+
                   <option
-                    key={value}
-                    value={value}
+                    key={
+                      value
+                    }
+                    value={
+                      value
+                    }
                   >
+
                     {value ===
                     "All"
                       ? "Todos los horarios"
                       : value}
+
                   </option>
+
                 )
               )}
+
             </select>
 
-            <div className="relative flex-1 xl:w-64 min-w-52">
+
+            <div className="relative min-w-52">
+
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
 
               <input
                 type="text"
-                placeholder="Buscar alumno..."
-                className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg w-full text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 value={
                   searchTerm
                 }
                 onChange={(event) =>
                   setSearchTerm(
-                    event.target.value
+                    event
+                      .target
+                      .value
                   )
                 }
+                placeholder="Buscar alumno..."
+                className="pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm"
               />
+
             </div>
+
 
             <button
               type="button"
               onClick={
                 resetFilters
               }
-              className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-slate-200"
+              className="bg-slate-100 px-3 py-2 rounded-lg text-sm flex items-center gap-2"
             >
+
               <Filter className="h-4 w-4" />
 
               Limpiar
+
             </button>
+
           </div>
+
         </div>
 
-        <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 print:hidden flex items-center gap-2">
-          <Database className="h-3.5 w-3.5" />
+
+        <div className="px-5 py-2 bg-slate-50 text-xs text-slate-500 flex items-center gap-2">
+
+          <Database className="h-4 w-4" />
 
           Mostrando{" "}
+
           <strong>
+
             {filteredData.length}
+
           </strong>{" "}
+
           registro(s)
+
+          {" · "}
+
+          Estos son los registros que se exportarán cuando selecciones{" "}
+
+          <strong>
+
+            “Lista actual”
+
+          </strong>
+
         </div>
 
+
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse whitespace-nowrap print:text-xs">
+
+          <table className="w-full text-left whitespace-nowrap">
+
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-semibold print:bg-gray-100 print:text-gray-800">
+
+              <tr className="bg-slate-50 text-xs uppercase text-slate-500">
+
+
                 {tableView ===
                   "desercion" && (
-                  <th className="p-4 border-b border-slate-100">
+
+                  <th className="p-4">
+
                     Estatus CRM
+
                   </th>
+
                 )}
 
-                <th className="p-4 border-b border-slate-100">
+
+                <th className="p-4">
+
                   Estudiante
+
                 </th>
 
-                <th className="p-4 border-b border-slate-100">
+                <th className="p-4">
+
                   Cédula
+
                 </th>
 
-                <th className="p-4 border-b border-slate-100">
-                  Categoría
-                </th>
 
                 {(tableView ===
                   "transNinosJovenes" ||
                   tableView ===
-                    "transJovenesAdultos") && (
-                  <th className="p-4 border-b border-slate-100">
-                    Cat. Anterior
+                    "transNinosAdultos" ||
+                  tableView ===
+                    "transJovenesAdultos") ? (
+
+                  <>
+
+                    <th className="p-4">
+
+                      Categoría Anterior
+
+                    </th>
+
+                    <th className="p-4">
+
+                      Categoría Nueva
+
+                    </th>
+
+                  </>
+
+                ) : (
+
+                  <th className="p-4">
+
+                    Categoría
+
                   </th>
+
                 )}
 
-                <th className="p-4 border-b border-slate-100">
+
+                <th className="p-4">
+
                   Nivel
+
                 </th>
 
-                <th className="p-4 border-b border-slate-100">
-                  Frecuencia{" "}
-                  {tableView ===
-                  "cambios"
-                    ? "Nueva"
-                    : ""}
-                </th>
 
                 {tableView ===
-                  "cambios" && (
-                  <th className="p-4 border-b border-slate-100">
-                    Frec. Anterior
+                  "cambios" ? (
+
+                  <>
+
+                    <th className="p-4">
+
+                      Frecuencia Anterior
+
+                    </th>
+
+                    <th className="p-4">
+
+                      Cambio
+
+                    </th>
+
+                    <th className="p-4">
+
+                      Frecuencia Nueva
+
+                    </th>
+
+                  </>
+
+                ) : (
+
+                  <th className="p-4">
+
+                    Frecuencia
+
                   </th>
+
                 )}
 
-                <th className="p-4 border-b border-slate-100">
+
+                <th className="p-4">
+
                   Horario
+
                 </th>
 
-                <th className="p-4 border-b border-slate-100">
+                <th className="p-4">
+
                   Email
+
                 </th>
 
-                <th className="p-4 border-b border-slate-100 print:hidden">
-                  Contacto Directo
-                </th>
+                <th className="p-4">
 
-                <th className="p-4 border-b border-slate-100">
                   Teléfono
+
                 </th>
+
+
+                <th className="p-4">
+
+                  Contacto
+
+                </th>
+
 
                 {tableView ===
                   "desercion" && (
-                  <th className="p-4 border-b border-slate-100 text-center print:hidden">
+
+                  <th className="p-4">
+
                     Acción CRM
+
                   </th>
+
                 )}
+
               </tr>
+
             </thead>
 
-            <tbody className="text-sm divide-y divide-slate-100">
+
+            <tbody className="divide-y divide-slate-100 text-sm">
+
               {filteredData.map(
                 (student) => {
+
                   const crm =
                     crmData[
                       student.idNorm
@@ -4568,165 +6968,285 @@ const DashboardContinuidad = () => {
                         "Pendiente",
                     };
 
-                  const isManaged =
-                    tableView ===
-                      "desercion" &&
-                    crm.status !==
-                      "Pendiente";
 
-                  const whatsappPhone =
+                  const whatsapp =
                     normalizeWhatsAppPhone(
                       student.phone
                     );
 
+
                   return (
+
                     <tr
                       key={`${student.idNorm}-${tableView}`}
-                      className={`hover:bg-slate-50 ${
-                        isManaged
-                          ? "bg-slate-50/50"
-                          : ""
-                      } print:border-b`}
+                      className="hover:bg-slate-50"
                     >
+
+
                       {tableView ===
                         "desercion" && (
+
                         <td className="p-4">
+
                           <span
-                            className={`px-3 py-1 rounded-full text-xs font-bold border print:border-none print:px-0 ${getCrmStatusColor(
+                            className={`px-3 py-1 rounded-full text-xs font-bold border ${getCrmStatusColor(
                               crm.status
                             )}`}
                           >
+
                             {crm.status}
+
                           </span>
+
                         </td>
+
                       )}
 
+
                       <td className="p-4 font-bold text-slate-800">
+
                         {student.name}
+
                       </td>
 
-                      <td className="p-4 text-slate-500 font-mono text-xs">
+
+                      <td className="p-4 font-mono text-xs text-slate-500">
+
                         {student.id}
+
                       </td>
 
-                      <td className="p-4 text-slate-600">
-                        {student.category}
-                      </td>
 
                       {(tableView ===
                         "transNinosJovenes" ||
                         tableView ===
-                          "transJovenesAdultos") && (
-                        <td className="p-4 text-emerald-600 font-medium">
-                          {student.oldCategory}
+                          "transNinosAdultos" ||
+                        tableView ===
+                          "transJovenesAdultos") ? (
+
+                        <>
+
+                          <td className="p-4">
+
+                            {student.oldCategory}
+
+                          </td>
+
+                          <td className="p-4 font-semibold text-blue-600">
+
+                            {student.newCategory ||
+                              student.category}
+
+                          </td>
+
+                        </>
+
+                      ) : (
+
+                        <td className="p-4">
+
+                          {student.category}
+
                         </td>
+
                       )}
+
 
                       <td className="p-4">
-                        <span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 print:bg-transparent print:px-0">
+
+                        <span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold">
+
                           {student.levelNorm}
+
                         </span>
+
                       </td>
 
-                      <td className="p-4 text-slate-600">
-                        {student.frequencyNorm}
-                      </td>
 
                       {tableView ===
-                        "cambios" && (
-                        <td className="p-4 text-amber-600 font-medium">
-                          {student.oldFrequency}
+                        "cambios" ? (
+
+                        <>
+
+                          <td className="p-4 text-slate-600">
+
+                            {student.oldFrequency ||
+                              "N/A"}
+
+                          </td>
+
+
+                          <td className="p-4">
+
+                            <span className="inline-flex items-center gap-2 font-semibold text-amber-700">
+
+                              {student.oldFrequency ||
+                                "N/A"}
+
+                              <ArrowRight className="h-4 w-4" />
+
+                              {student.newFrequency ||
+                                student.frequencyNorm}
+
+                            </span>
+
+                          </td>
+
+
+                          <td className="p-4 text-blue-600 font-semibold">
+
+                            {student.newFrequency ||
+                              student.frequencyNorm}
+
+                          </td>
+
+                        </>
+
+                      ) : (
+
+                        <td className="p-4">
+
+                          {student.frequencyNorm}
+
                         </td>
+
                       )}
 
-                      <td className="p-4 text-slate-600">
+
+                      <td className="p-4">
+
                         {student.scheduleBlock}
+
                       </td>
+
 
                       <td className="p-4 text-slate-500">
+
                         {student.email ||
                           "N/A"}
+
                       </td>
 
-                      <td className="p-4 print:hidden">
-                        <div className="flex items-center gap-2">
-                          {student.phone ? (
-                            <>
-                              {whatsappPhone && (
-                                <a
-                                  href={`https://wa.me/${whatsappPhone}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="p-2 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors"
-                                  title="Escribir por WhatsApp"
-                                >
-                                  <MessageCircle className="h-4 w-4" />
-                                </a>
-                              )}
 
-                              <a
-                                href={`tel:${student.phone}`}
-                                className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                                title="Llamada Telefónica"
-                              >
-                                <Phone className="h-4 w-4" />
-                              </a>
-                            </>
-                          ) : (
-                            <span className="text-xs text-slate-400">
-                              N/A
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                      <td className="p-4">
 
-                      <td className="p-4 text-slate-600">
                         {student.phone ||
                           "N/A"}
+
                       </td>
+
+
+                      <td className="p-4">
+
+                        {student.phone ? (
+
+                          <div className="flex gap-2">
+
+                            {whatsapp && (
+
+                              <a
+                                href={`https://wa.me/${whatsapp}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-2 bg-green-100 text-green-600 rounded-lg"
+                                title="WhatsApp"
+                              >
+
+                                <MessageCircle className="h-4 w-4" />
+
+                              </a>
+
+                            )}
+
+
+                            <a
+                              href={`tel:${student.phone}`}
+                              className="p-2 bg-blue-100 text-blue-600 rounded-lg"
+                              title="Llamar"
+                            >
+
+                              <Phone className="h-4 w-4" />
+
+                            </a>
+
+                          </div>
+
+                        ) : (
+
+                          <span className="text-slate-400">
+
+                            N/A
+
+                          </span>
+
+                        )}
+
+                      </td>
+
 
                       {tableView ===
                         "desercion" && (
-                        <td className="p-4 text-center print:hidden">
+
+                        <td className="p-4">
+
                           <button
                             type="button"
                             onClick={() =>
-                              setCrmModal(
-                                {
-                                  isOpen:
-                                    true,
+                              setCrmModal({
+                                isOpen:
+                                  true,
 
-                                  student,
-                                }
-                              )
+                                student,
+                              })
                             }
-                            className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 mx-auto transition-colors"
+                            className="bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs flex items-center gap-2"
                           >
+
                             <Edit3 className="h-3 w-3" />
 
                             Gestionar
+
                           </button>
+
                         </td>
+
                       )}
+
                     </tr>
+
                   );
+
                 }
               )}
 
+
               {!filteredData.length && (
+
                 <tr>
+
                   <td
-                    colSpan={14}
+                    colSpan={
+                      14
+                    }
                     className="p-8 text-center text-slate-400"
                   >
-                    No existen registros que coincidan con los filtros seleccionados.
+
+                    No hay registros que coincidan con los filtros seleccionados.
+
                   </td>
+
                 </tr>
+
               )}
+
             </tbody>
+
           </table>
+
         </div>
+
       </div>
+
 
       {/* ===================================================
           CRM MODAL
@@ -4734,19 +7254,207 @@ const DashboardContinuidad = () => {
 
       {crmModal.isOpen &&
         crmModal.student && (
-          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 print:hidden">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-              <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <div>
-                  <h3 className="font-bold text-slate-800">
-                    Gestionar Alumno
-                  </h3>
 
-                  <p className="text-xs text-slate-500">
-                    {crmModal.student.name}{" "}
-                    ({crmModal.student.id})
-                  </p>
-                </div>
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+
+
+            <div className="p-5 border-b bg-slate-50 flex justify-between">
+
+              <div>
+
+                <h3 className="font-bold">
+
+                  Gestionar Alumno
+
+                </h3>
+
+                <p className="text-xs text-slate-500">
+
+                  {crmModal.student.name}{" "}
+
+                  ({crmModal.student.id})
+
+                </p>
+
+              </div>
+
+
+              <button
+                type="button"
+                onClick={() =>
+                  setCrmModal({
+                    isOpen:
+                      false,
+
+                    student:
+                      null,
+                  })
+                }
+              >
+
+                <XCircle className="h-6 w-6 text-slate-400" />
+
+              </button>
+
+            </div>
+
+
+            <form
+              onSubmit={
+                saveCrmData
+              }
+              className="p-5 space-y-4"
+            >
+
+
+              <div>
+
+                <label className="block text-xs font-bold mb-1">
+
+                  Estatus del Rescate
+
+                </label>
+
+                <select
+                  name="status"
+                  defaultValue={
+                    crmData[
+                      crmModal
+                        .student
+                        .idNorm
+                    ]?.status ||
+                    "Pendiente"
+                  }
+                  className="w-full border rounded-lg p-2.5 text-sm"
+                >
+
+                  <option value="Pendiente">
+
+                    Pendiente
+
+                  </option>
+
+                  <option value="En Gestión">
+
+                    En Gestión
+
+                  </option>
+
+                  <option value="Rescatado">
+
+                    Rescatado
+
+                  </option>
+
+                  <option value="Pérdida Definitiva">
+
+                    Pérdida Definitiva
+
+                  </option>
+
+                </select>
+
+              </div>
+
+
+              <div>
+
+                <label className="block text-xs font-bold mb-1">
+
+                  Motivo Principal
+
+                </label>
+
+                <select
+                  name="motive"
+                  defaultValue={
+                    crmData[
+                      crmModal
+                        .student
+                        .idNorm
+                    ]?.motive ||
+                    ""
+                  }
+                  className="w-full border rounded-lg p-2.5 text-sm"
+                >
+
+                  <option value="">
+
+                    Seleccione...
+
+                  </option>
+
+                  <option value="Económico">
+
+                    Económico / Presupuesto
+
+                  </option>
+
+                  <option value="Horario Incompatible">
+
+                    Horario Incompatible
+
+                  </option>
+
+                  <option value="Viaje / Mudanza">
+
+                    Viaje / Mudanza
+
+                  </option>
+
+                  <option value="Calidad Académica">
+
+                    Descontento Académico
+
+                  </option>
+
+                  <option value="Salud">
+
+                    Salud / Motivos Personales
+
+                  </option>
+
+                  <option value="Otro">
+
+                    Otro
+
+                  </option>
+
+                </select>
+
+              </div>
+
+
+              <div>
+
+                <label className="block text-xs font-bold mb-1">
+
+                  Notas
+
+                </label>
+
+                <textarea
+                  name="notes"
+                  rows={
+                    4
+                  }
+                  defaultValue={
+                    crmData[
+                      crmModal
+                        .student
+                        .idNorm
+                    ]?.notes ||
+                    ""
+                  }
+                  className="w-full border rounded-lg p-2 text-sm"
+                />
+
+              </div>
+
+
+              <div className="flex justify-end gap-3">
 
                 <button
                   type="button"
@@ -4759,151 +7467,36 @@ const DashboardContinuidad = () => {
                         null,
                     })
                   }
-                  className="text-slate-400 hover:text-slate-600"
+                  className="px-4 py-2 text-sm"
                 >
-                  <XCircle className="h-6 w-6" />
+
+                  Cancelar
+
                 </button>
+
+
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg"
+                >
+
+                  Guardar Gestión
+
+                </button>
+
               </div>
 
-              <form
-                onSubmit={
-                  saveCrmData
-                }
-                className="p-5 flex flex-col gap-4"
-              >
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Estatus del Rescate
-                  </label>
+            </form>
 
-                  <select
-                    name="status"
-                    defaultValue={
-                      crmData[
-                        crmModal
-                          .student
-                          .idNorm
-                      ]?.status ||
-                      "Pendiente"
-                    }
-                    className="w-full border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500"
-                  >
-                    <option value="Pendiente">
-                      Pendiente (No contactado)
-                    </option>
-
-                    <option value="En Gestión">
-                      En Gestión (Esperando respuesta)
-                    </option>
-
-                    <option value="Rescatado">
-                      Rescatado
-                    </option>
-
-                    <option value="Pérdida Definitiva">
-                      Pérdida Definitiva
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Motivo Principal de Fuga
-                  </label>
-
-                  <select
-                    name="motive"
-                    defaultValue={
-                      crmData[
-                        crmModal
-                          .student
-                          .idNorm
-                      ]?.motive ||
-                      ""
-                    }
-                    className="w-full border border-slate-200 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500"
-                  >
-                    <option value="">
-                      Seleccione un motivo...
-                    </option>
-
-                    <option value="Económico">
-                      Económico / Presupuesto
-                    </option>
-
-                    <option value="Horario Incompatible">
-                      Horario Incompatible
-                    </option>
-
-                    <option value="Viaje / Mudanza">
-                      Viaje / Mudanza
-                    </option>
-
-                    <option value="Calidad Académica">
-                      Descontento Académico
-                    </option>
-
-                    <option value="Salud">
-                      Salud / Motivos Personales
-                    </option>
-
-                    <option value="Otro">
-                      Otro
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Notas del Operador
-                  </label>
-
-                  <textarea
-                    name="notes"
-                    defaultValue={
-                      crmData[
-                        crmModal
-                          .student
-                          .idNorm
-                      ]?.notes ||
-                      ""
-                    }
-                    placeholder="Detalles de la llamada, respuesta del estudiante, seguimiento..."
-                    rows={4}
-                    className="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-blue-500 resize-none"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-3 mt-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCrmModal({
-                        isOpen:
-                          false,
-
-                        student:
-                          null,
-                      })
-                    }
-                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-                  >
-                    Cancelar
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
-                  >
-                    Guardar Gestión
-                  </button>
-                </div>
-              </form>
-            </div>
           </div>
-        )}
+
+        </div>
+
+      )}
+
     </div>
   );
 };
+
 
 export default DashboardContinuidad;
