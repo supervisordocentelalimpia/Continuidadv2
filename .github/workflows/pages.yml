@@ -22,84 +22,34 @@ concurrency:
 
 jobs:
 
-  # ==========================================================
-  # 1. VALIDACIÓN
-  # ==========================================================
-
   validate:
     name: Validar aplicación
     runs-on: ubuntu-latest
 
     steps:
-
-      # -------------------------------------------------------
-      # Descargar repositorio
-      # -------------------------------------------------------
-
       - name: Descargar repositorio
         uses: actions/checkout@v4
-
-      # -------------------------------------------------------
-      # Configurar Node.js
-      # -------------------------------------------------------
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # -------------------------------------------------------
-      # Mostrar versiones
-      # -------------------------------------------------------
-
       - name: Mostrar versiones del entorno
         run: |
           echo "Node:"
           node --version
-
           echo "NPM:"
           npm --version
-
-      # -------------------------------------------------------
-      # Instalar dependencias
-      #
-      # Se usa npm install por ahora porque estamos realizando
-      # cambios directamente desde GitHub y package-lock.json
-      # podría no haberse actualizado todavía.
-      # -------------------------------------------------------
 
       - name: Instalar dependencias
         run: npm install
 
-      # -------------------------------------------------------
-      # Ejecutar pruebas automáticas
-      #
-      # IMPORTANTE:
-      #
-      # --passWithNoTests se usa TEMPORALMENTE porque todavía
-      # no hemos creado los archivos de pruebas.
-      #
-      # Cuando creemos las pruebas de continuidad, cualquier
-      # prueba que falle detendrá igualmente este paso.
-      # -------------------------------------------------------
-
       - name: Ejecutar pruebas automáticas
         run: npm run test -- --passWithNoTests
 
-      # -------------------------------------------------------
-      # Compilar aplicación
-      #
-      # Si existe un error de JavaScript, JSX, imports,
-      # dependencias o configuración de Vite, el workflow
-      # se detendrá aquí.
-      # -------------------------------------------------------
-
       - name: Compilar aplicación
         run: npm run build
-
-      # -------------------------------------------------------
-      # Verificar que Vite produjo /dist
-      # -------------------------------------------------------
 
       - name: Verificar resultado de compilación
         run: |
@@ -115,22 +65,10 @@ jobs:
 
           echo "Compilación validada correctamente."
 
-  # ==========================================================
-  # 2. BUILD PARA GITHUB PAGES
-  # ==========================================================
-
   build:
     name: Preparar GitHub Pages
     needs:
       - validate
-
-    /*
-      En Pull Requests solamente queremos validar.
-      No debemos publicar.
-
-      El deploy se prepara únicamente desde main
-      o cuando ejecutamos manualmente el workflow.
-    */
 
     if: >
       github.event_name == 'push' ||
@@ -139,47 +77,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # -------------------------------------------------------
-      # Descargar repositorio
-      # -------------------------------------------------------
-
       - name: Descargar repositorio
         uses: actions/checkout@v4
-
-      # -------------------------------------------------------
-      # Configurar Node.js
-      # -------------------------------------------------------
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # -------------------------------------------------------
-      # Instalar dependencias
-      # -------------------------------------------------------
-
       - name: Instalar dependencias
         run: npm install
-
-      # -------------------------------------------------------
-      # Configurar GitHub Pages
-      # -------------------------------------------------------
 
       - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      # -------------------------------------------------------
-      # Crear versión de producción
-      # -------------------------------------------------------
-
       - name: Compilar versión de producción
         run: npm run build
-
-      # -------------------------------------------------------
-      # Verificación adicional
-      # -------------------------------------------------------
 
       - name: Verificar archivos de producción
         run: |
@@ -193,18 +106,10 @@ jobs:
 
           echo "Artefacto preparado correctamente."
 
-      # -------------------------------------------------------
-      # Subir artefacto para Pages
-      # -------------------------------------------------------
-
       - name: Subir artefacto de GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
-
-  # ==========================================================
-  # 3. DEPLOY
-  # ==========================================================
 
   deploy:
     name: Publicar aplicación
@@ -223,11 +128,6 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-
-      # -------------------------------------------------------
-      # Publicar
-      # -------------------------------------------------------
-
       - name: Desplegar en GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
