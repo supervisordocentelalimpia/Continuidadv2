@@ -2,8 +2,27 @@
 
 import { extractTextFromPdf } from "./pdfText";
 
+import {
+  detectFrequency,
+  FREQUENCIES,
+} from "./frecuencia";
+
 /* =========================================================
    BLOQUES HORARIOS INSTITUCIONALES CONOCIDOS
+   =========================================================
+
+   Esta lista NO determina la frecuencia.
+
+   Solamente normaliza bloques horarios conocidos para que:
+
+   8:30 A 10:00AM
+   8:30 AM A 10:00 AM
+   8:30 AM - 10:00 AM
+
+   terminen representándose igual.
+
+   Si aparece un horario nuevo, el sistema puede conservarlo
+   aunque todavía no esté incluido aquí.
    ========================================================= */
 
 const HORARIO_BLOQUES = [
@@ -13,152 +32,180 @@ const HORARIO_BLOQUES = [
   "2:45 PM - 4:15 PM",
   "4:30 PM - 6:00 PM",
   "6:15 PM - 7:45 PM",
+
+  /*
+    Bloques usados en clases de una sesión semanal.
+  */
+
   "8:00 AM - 10:40 AM",
   "10:50 AM - 1:30 PM",
   "2:30 PM - 5:10 PM",
+
+  /*
+    Bloque observado en el nuevo Semi Intensivo.
+  */
+
+  "8:30 PM - 10:30 PM",
 ];
 
+
 /* =========================================================
-   UTILIDADES GENERALES
+   TEXTO
    ========================================================= */
 
-const cleanSpaces = (value = "") =>
-  String(value ?? "")
-    .replace(/\u00A0/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .trim();
-
-/*
-  Elimina tildes solamente para COMPARACIONES.
-
-  No modifica el texto que se muestra al usuario.
-*/
-const removeDiacritics = (value = "") =>
-  String(value ?? "")
+const stripDiacritics = (
+  value = ""
+) => {
+  return String(value ?? "")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-/*
-  Corrige algunos casos frecuentes de texto UTF-8
-  interpretado incorrectamente.
-
-  No intenta adivinar caracteres que ya fueron destruidos
-  por el extractor del PDF.
-*/
-const repairCommonMojibake = (value = "") => {
-  let text = String(value ?? "");
-
-  const replacements = [
-    ["Ã", "Á"],
-    ["Ã‰", "É"],
-    ["Ã", "Í"],
-    ["Ã“", "Ó"],
-    ["Ãš", "Ú"],
-    ["Ã‘", "Ñ"],
-    ["Ãœ", "Ü"],
-
-    ["Ã¡", "á"],
-    ["Ã©", "é"],
-    ["Ã­", "í"],
-    ["Ã³", "ó"],
-    ["Ãº", "ú"],
-    ["Ã±", "ñ"],
-    ["Ã¼", "ü"],
-
-    ["Â", ""],
-
-    ["â€“", "–"],
-    ["â€”", "—"],
-    ["â€˜", "'"],
-    ["â€™", "'"],
-    ['â€œ', '"'],
-    ['â€', '"'],
-  ];
-
-  for (const [bad, good] of replacements) {
-    text = text.split(bad).join(good);
-  }
-
-  return text;
+    .replace(
+      /[\u0300-\u036f]/g,
+      ""
+    );
 };
 
-const normalizeComparableText = (value = "") =>
-  removeDiacritics(
-    repairCommonMojibake(value)
+
+const normalizeComparableText = (
+  value = ""
+) => {
+  return stripDiacritics(
+    value
   )
     .toUpperCase()
+    .replace(/[–—]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
+};
 
-const normKey = (value = "") =>
-  normalizeComparableText(value)
+
+const normKey = (
+  value = ""
+) => {
+  return normalizeComparableText(
+    value
+  )
     .replace(/\s+/g, "")
-    .replace(/[–—]/g, "-")
-    .replace(/[.]/g, "");
+    .replace(/[–—]/g, "-");
+};
+
 
 /* =========================================================
    NIVEL
    ========================================================= */
 
-const normalizeLevel = (raw = "") => {
-  const text = normalizeComparableText(raw);
+export const normalizePdfLevel = (
+  raw = ""
+) => {
+  const value =
+    normalizeComparableText(
+      raw
+    );
 
-  if (!text) {
-    return "N/A";
-  }
-
-  const match = text.match(/(\d{1,2})/);
+  const match =
+    value.match(
+      /(?:LEVEL|NIVEL|L)?\s*0*(\d{1,2})\b/i
+    );
 
   if (!match) {
-    return "N/A";
+    return String(
+      raw || "N/A"
+    ).trim();
   }
 
-  const number = parseInt(
-    match[1],
-    10
-  );
+  const level =
+    parseInt(
+      match[1],
+      10
+    );
 
   if (
-    !Number.isFinite(number) ||
-    number <= 0
+    !Number.isFinite(level)
   ) {
     return "N/A";
   }
 
-  return `L${String(number).padStart(
-    2,
-    "0"
-  )}`;
+  return `L${String(
+    level
+  ).padStart(2, "0")}`;
 };
+
 
 /* =========================================================
    CATEGORÍA
    ========================================================= */
 
-const normalizeCategory = (raw = "") => {
-  const text =
-    normalizeComparableText(raw);
+export const normalizePdfCategory = (
+  raw = ""
+) => {
+  const original =
+    String(raw ?? "");
 
-  if (!text) {
-    return "N/A";
-  }
+  const value =
+    normalizeComparableText(
+      original
+    );
+
+  /*
+    Adultos
+  */
 
   if (
-    text.includes("ADULTO")
+    /\bADULT(?:O|OS)?\b/.test(
+      value
+    )
   ) {
     return "Adultos";
   }
 
+  /*
+    Jóvenes
+
+    Cubre:
+
+    JOVENES
+    JÓVENES
+    JOVEN
+  */
+
   if (
-    text.includes("JOVEN")
+    /\bJOVEN(?:ES)?\b/.test(
+      value
+    )
   ) {
     return "Jóvenes";
   }
 
+  /*
+    Niños
+
+    En PDFs reales encontramos:
+
+    NIÑOS
+    NINOS
+    NI?OS
+    NIï¿½OS
+    NIÃ?OS
+
+    Por eso no dependemos de que la Ñ
+    sea extraída correctamente.
+  */
+
+  const compact =
+    value.replace(
+      /[^A-Z]/g,
+      ""
+    );
+
   if (
-    text.includes("NINO") ||
-    text.includes("NI?O") ||
-    text.includes("NI�O")
+    compact.includes(
+      "NINOS"
+    ) ||
+    compact.includes(
+      "NIOS"
+    ) ||
+    /\bNI.?OS\b/i.test(
+      original
+    )
   ) {
     return "Niños";
   }
@@ -166,81 +213,50 @@ const normalizeCategory = (raw = "") => {
   return "N/A";
 };
 
-/*
-  Solo se utiliza como respaldo.
-
-  La categoría principal debe tomarse de cada encabezado:
-  "Categoría: CEVAZ PRESENCIAL ADULTOS"
-*/
-const inferDocumentCategory = (
-  text = ""
-) => {
-  const up =
-    normalizeComparableText(text);
-
-  const categories = new Set();
-
-  if (
-    up.includes(
-      "PRESENCIAL ADULTOS"
-    )
-  ) {
-    categories.add("Adultos");
-  }
-
-  if (
-    up.includes(
-      "PRESENCIAL JOVENES"
-    )
-  ) {
-    categories.add("Jóvenes");
-  }
-
-  if (
-    up.includes(
-      "PRESENCIAL NINOS"
-    ) ||
-    up.includes(
-      "PRESENCIAL NI?OS"
-    ) ||
-    up.includes(
-      "PRESENCIAL NI�OS"
-    )
-  ) {
-    categories.add("Niños");
-  }
-
-  /*
-    Si todo el PDF contiene una sola categoría,
-    se puede utilizar como fallback.
-
-    Si contiene más de una, no se adivina.
-  */
-  if (categories.size === 1) {
-    return Array.from(
-      categories
-    )[0];
-  }
-
-  return "N/A";
-};
 
 /* =========================================================
    HORARIOS
    ========================================================= */
 
-const canonicalTime = (
+const to12HourMinutes = (
   hour,
   minute,
   meridiem
 ) => {
-  return `${parseInt(
-    hour,
-    10
-  )}:${minute} ${meridiem}`;
+  let h =
+    Number(hour);
+
+  const m =
+    Number(minute);
+
+  const mer =
+    String(
+      meridiem || ""
+    ).toUpperCase();
+
+  if (
+    !Number.isFinite(h) ||
+    !Number.isFinite(m) ||
+    !["AM", "PM"].includes(
+      mer
+    )
+  ) {
+    return null;
+  }
+
+  if (h === 12) {
+    h = 0;
+  }
+
+  if (mer === "PM") {
+    h += 12;
+  }
+
+  return h * 60 + m;
 };
 
-const buildHorarioCandidate = (
+
+const durationMinutes = (
   startHour,
   startMinute,
   startMeridiem,
@@ -248,826 +264,780 @@ const buildHorarioCandidate = (
   endMinute,
   endMeridiem
 ) => {
-  return `${canonicalTime(
-    startHour,
-    startMinute,
-    startMeridiem
-  )} - ${canonicalTime(
-    endHour,
-    endMinute,
-    endMeridiem
-  )}`;
+  const start =
+    to12HourMinutes(
+      startHour,
+      startMinute,
+      startMeridiem
+    );
+
+  const end =
+    to12HourMinutes(
+      endHour,
+      endMinute,
+      endMeridiem
+    );
+
+  if (
+    start === null ||
+    end === null
+  ) {
+    return null;
+  }
+
+  let difference =
+    end - start;
+
+  /*
+    Permite rangos que crucen medianoche,
+    aunque actualmente no esperamos clases
+    académicas de ese tipo.
+  */
+
+  if (difference <= 0) {
+    difference +=
+      24 * 60;
+  }
+
+  return difference;
 };
 
-const findKnownHorario = (
-  candidate
-) => {
-  const key =
-    normKey(candidate);
 
-  return (
-    HORARIO_BLOQUES.find(
-      (block) =>
-        normKey(block) === key
-    ) || null
-  );
-};
+/* =========================================================
+   INFERENCIA SEGURA DEL MERIDIANO
+   =========================================================
 
-/*
-  Busca la combinación AM/PM que coincida
-  con un bloque institucional conocido.
+   Muchos PDFs escriben:
 
-  Esto evita errores como interpretar:
+   8:30 A 10:00AM
+   1:00 A 2:30PM
+   4:30 A 6:00PM
 
-  1:00 A 2:30 PM
+   Es decir, omiten AM/PM en la hora inicial.
 
-  como:
+   Para inferirla probamos AM y PM y seleccionamos únicamente
+   una opción si produce una duración académicamente razonable.
 
-  1:00 AM - 2:30 PM
-*/
-const resolveMissingMeridiem = ({
+   Consideramos razonable una duración entre:
+
+   30 minutos y 6 horas.
+
+   Si ambas opciones fueran razonables o ninguna lo fuera,
+   no inventamos el valor.
+   ========================================================= */
+
+const inferMissingStartMeridiem = ({
   startHour,
   startMinute,
-  startMeridiem,
   endHour,
   endMinute,
   endMeridiem,
 }) => {
-  const startOptions =
-    startMeridiem
-      ? [startMeridiem]
-      : ["AM", "PM"];
+  const candidates =
+    ["AM", "PM"].map(
+      (meridiem) => {
+        const duration =
+          durationMinutes(
+            startHour,
+            startMinute,
+            meridiem,
+            endHour,
+            endMinute,
+            endMeridiem
+          );
 
-  const endOptions =
-    endMeridiem
-      ? [endMeridiem]
-      : ["AM", "PM"];
+        const plausible =
+          Number.isFinite(
+            duration
+          ) &&
+          duration >= 30 &&
+          duration <= 360;
 
-  const possibleKnown = [];
-
-  for (const startMer of startOptions) {
-    for (const endMer of endOptions) {
-      const candidate =
-        buildHorarioCandidate(
-          startHour,
-          startMinute,
-          startMer,
-          endHour,
-          endMinute,
-          endMer
-        );
-
-      const known =
-        findKnownHorario(
-          candidate
-        );
-
-      if (known) {
-        possibleKnown.push({
-          known,
-          startMer,
-          endMer,
-        });
+        return {
+          meridiem,
+          duration,
+          plausible,
+        };
       }
-    }
-  }
+    );
+
+  const plausible =
+    candidates.filter(
+      (candidate) =>
+        candidate.plausible
+    );
 
   if (
-    possibleKnown.length === 1
+    plausible.length === 1
   ) {
-    return possibleKnown[0];
-  }
+    return {
+      meridiem:
+        plausible[0]
+          .meridiem,
 
-  if (
-    possibleKnown.length > 1
-  ) {
-    /*
-      En caso extremadamente raro de ambigüedad,
-      conserva la primera coincidencia institucional.
-    */
-    return possibleKnown[0];
-  }
+      inferred: true,
 
-  /*
-    Fallback si el horario no existe todavía
-    en HORARIO_BLOQUES.
-  */
+      duration:
+        plausible[0]
+          .duration,
 
-  let resolvedStart =
-    startMeridiem;
-
-  let resolvedEnd =
-    endMeridiem;
-
-  if (
-    !resolvedStart &&
-    resolvedEnd
-  ) {
-    if (
-      resolvedEnd === "AM"
-    ) {
-      resolvedStart = "AM";
-    } else if (
-      Number(startHour) >= 8 &&
-      Number(startHour) <= 11
-    ) {
-      resolvedStart = "AM";
-    } else {
-      resolvedStart = "PM";
-    }
-  }
-
-  if (
-    resolvedStart &&
-    !resolvedEnd
-  ) {
-    /*
-      Si inicia en AM y termina cerca de mediodía,
-      puede terminar en PM.
-
-      Para otros casos conserva el mismo meridiano.
-    */
-    if (
-      resolvedStart === "AM" &&
-      Number(endHour) === 12
-    ) {
-      resolvedEnd = "PM";
-    } else {
-      resolvedEnd =
-        resolvedStart;
-    }
-  }
-
-  if (
-    !resolvedStart &&
-    !resolvedEnd
-  ) {
-    resolvedStart =
-      Number(startHour) >= 8 &&
-      Number(startHour) <= 11
-        ? "AM"
-        : "PM";
-
-    resolvedEnd =
-      Number(endHour) === 12
-        ? "PM"
-        : resolvedStart;
+      ambiguous: false,
+    };
   }
 
   return {
-    known: null,
-    startMer: resolvedStart,
-    endMer: resolvedEnd,
+    meridiem: "",
+
+    inferred: false,
+
+    duration: null,
+
+    ambiguous: true,
   };
 };
 
-const normalizeHorario = (
+
+/* =========================================================
+   NORMALIZACIÓN DETALLADA DEL HORARIO
+   ========================================================= */
+
+export const normalizePdfScheduleDetailed = (
   raw = ""
 ) => {
-  if (!raw) {
-    return "N/A";
+  const original =
+    String(
+      raw ?? ""
+    ).trim();
+
+  if (!original) {
+    return {
+      raw: "",
+
+      block: "N/A",
+
+      valid: false,
+
+      needsReview: true,
+
+      reason:
+        "missing_schedule",
+
+      startMeridiemInferred:
+        false,
+
+      durationMinutes:
+        null,
+    };
   }
 
-  let value =
-    repairCommonMojibake(
-      cleanSpaces(raw)
-    );
-
   /*
-    El horario suele venir después de "/":
+    La parte anterior al "/" es la frecuencia.
 
-    TUESDAY TO FRIDAY / 1:00 A 2:30PM
+    Ejemplo:
+
+    TUESDAY & THURSDAY / 8:30 A 10:00AM
+
+    Solo procesamos como bloque horario:
+
+    8:30 A 10:00AM
   */
-  if (value.includes("/")) {
-    const parts =
-      value.split("/");
 
-    value =
-      parts[
-        parts.length - 1
-      ].trim();
-  }
-
-  value = value
-    .replace(/[–—]/g, "-")
-    .replace(/\(P\)/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const timePart =
+    original.includes("/")
+      ? original
+          .split("/")
+          .slice(1)
+          .join("/")
+          .trim()
+      : original;
 
   /*
-    Primero busca coincidencia textual exacta
-    con bloques conocidos.
+    Eliminamos anotaciones como:
+
+    (P)
+
+    sin modificar el horario.
   */
-  const direct =
-    findKnownHorario(value);
 
-  if (direct) {
-    return direct;
-  }
+  const cleaned =
+    timePart
+
+      .replace(
+        /\([^)]*\)/g,
+        " "
+      )
+
+      .replace(
+        /[–—]/g,
+        "-"
+      )
+
+      .replace(
+        /\s+/g,
+        " "
+      )
+
+      .trim();
 
   /*
-    Soporta:
+    Casos soportados:
+
+    8:30 A 10:00AM
+
+    8:30 AM A 10:00 AM
 
     1:00 A 2:30PM
-    1:00 PM A 2:30 PM
-    1:00 TO 2:30 PM
-    1:00 PM - 2:30 PM
-    10:30 A 12:00 PM
+
+    10:50 AM A 01:30 PM
+
+    8:30 - 10:00 AM
+
+    8:30 TO 10:00 AM
   */
+
   const match =
-    value.match(
-      /(\d{1,2})\s*[:.]\s*(\d{2})\s*(AM|PM)?\s*(?:A|TO|-)\s*(\d{1,2})\s*[:.]\s*(\d{2})\s*(AM|PM)?/i
+    cleaned.match(
+      /(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)?\s*(?:A|TO|-)\s*(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)?/i
     );
 
   if (!match) {
-    /*
-      No inventamos un horario.
+    const exact =
+      HORARIO_BLOQUES.find(
+        (block) =>
+          normKey(block) ===
+          normKey(cleaned)
+      );
 
-      Se conserva el valor para que el usuario
-      pueda identificarlo y App.jsx lo muestre
-      como posible advertencia.
+    if (exact) {
+      return {
+        raw: original,
+
+        block: exact,
+
+        valid: true,
+
+        needsReview: false,
+
+        reason: "",
+
+        startMeridiemInferred:
+          false,
+
+        durationMinutes:
+          null,
+      };
+    }
+
+    /*
+      No destruimos información desconocida.
+
+      Conservamos el texto, pero indicamos que
+      necesita revisión.
     */
-    return value || "N/A";
+
+    return {
+      raw: original,
+
+      block:
+        cleaned ||
+        original ||
+        "N/A",
+
+      valid: false,
+
+      needsReview: true,
+
+      reason:
+        "unrecognized_schedule_format",
+
+      startMeridiemInferred:
+        false,
+
+      durationMinutes:
+        null,
+    };
   }
 
   const startHour =
-    parseInt(match[1], 10);
+    parseInt(
+      match[1],
+      10
+    );
 
   const startMinute =
-    match[2];
+    parseInt(
+      match[2],
+      10
+    );
 
-  const startMeridiem =
-    match[3]
-      ? match[3].toUpperCase()
-      : "";
+  let startMeridiem =
+    String(
+      match[3] || ""
+    ).toUpperCase();
 
   const endHour =
-    parseInt(match[4], 10);
+    parseInt(
+      match[4],
+      10
+    );
 
   const endMinute =
-    match[5];
+    parseInt(
+      match[5],
+      10
+    );
 
-  const endMeridiem =
-    match[6]
-      ? match[6].toUpperCase()
-      : "";
+  let endMeridiem =
+    String(
+      match[6] || ""
+    ).toUpperCase();
 
-  const resolved =
-    resolveMissingMeridiem({
+  let inferredStart =
+    false;
+
+  let ambiguous =
+    false;
+
+  /*
+    Si falta también el meridiano final,
+    no tenemos suficiente información
+    para hacer una inferencia segura.
+  */
+
+  if (!endMeridiem) {
+    return {
+      raw: original,
+
+      block: cleaned,
+
+      valid: false,
+
+      needsReview: true,
+
+      reason:
+        "missing_end_meridiem",
+
+      startMeridiemInferred:
+        false,
+
+      durationMinutes:
+        null,
+    };
+  }
+
+  /*
+    Inferimos únicamente el AM/PM inicial
+    cuando falta.
+  */
+
+  if (!startMeridiem) {
+    const inference =
+      inferMissingStartMeridiem({
+        startHour,
+        startMinute,
+
+        endHour,
+        endMinute,
+
+        endMeridiem,
+      });
+
+    startMeridiem =
+      inference.meridiem;
+
+    inferredStart =
+      inference.inferred;
+
+    ambiguous =
+      inference.ambiguous;
+  }
+
+  if (
+    !startMeridiem ||
+    ambiguous
+  ) {
+    return {
+      raw: original,
+
+      block: cleaned,
+
+      valid: false,
+
+      needsReview: true,
+
+      reason:
+        "ambiguous_start_meridiem",
+
+      startMeridiemInferred:
+        false,
+
+      durationMinutes:
+        null,
+    };
+  }
+
+  const duration =
+    durationMinutes(
       startHour,
       startMinute,
       startMeridiem,
+
       endHour,
       endMinute,
-      endMeridiem,
-    });
+      endMeridiem
+    );
 
-  if (resolved.known) {
-    return resolved.known;
+  /*
+    Validación adicional.
+
+    No aceptamos automáticamente una clase
+    de más de seis horas.
+  */
+
+  if (
+    !Number.isFinite(
+      duration
+    ) ||
+    duration < 30 ||
+    duration > 360
+  ) {
+    return {
+      raw: original,
+
+      block: cleaned,
+
+      valid: false,
+
+      needsReview: true,
+
+      reason:
+        "implausible_schedule_duration",
+
+      startMeridiemInferred:
+        inferredStart,
+
+      durationMinutes:
+        duration,
+    };
   }
+
+  const startHourDisplay =
+    startHour;
+
+  const endHourDisplay =
+    endHour;
 
   const candidate =
-    buildHorarioCandidate(
-      startHour,
-      startMinute,
-      resolved.startMer,
-      endHour,
-      endMinute,
-      resolved.endMer
-    );
+    `${startHourDisplay}:${String(
+      startMinute
+    ).padStart(
+      2,
+      "0"
+    )} ${startMeridiem} - ${endHourDisplay}:${String(
+      endMinute
+    ).padStart(
+      2,
+      "0"
+    )} ${endMeridiem}`;
+
+  /*
+    Buscamos primero un bloque institucional
+    conocido.
+  */
 
   const mapped =
-    findKnownHorario(
-      candidate
-    );
-
-  return (
-    mapped ||
-    candidate ||
-    value ||
-    "N/A"
-  );
-};
-
-/* =========================================================
-   IDENTIFICACIONES
-   ========================================================= */
-
-/*
-  Aquí NO normalizamos definitivamente la cédula.
-
-  App.jsx conserva:
-
-  idOriginal
-  idNorm
-
-  Este parser solo debe evitar perder registros.
-
-  Acepta ejemplos como:
-
-  33500635
-  171167
-  17738636-1
-  V-12345678
-  E-12345678
-  ABC123456
-*/
-const isPossibleStudentId = (
-  value = ""
-) => {
-  const token =
-    String(value ?? "")
-      .trim()
-      .toUpperCase();
-
-  if (!token) {
-    return false;
-  }
-
-  if (
-    token.length < 5 ||
-    token.length > 25
-  ) {
-    return false;
-  }
-
-  /*
-    Debe contener por lo menos un número.
-  */
-  if (!/\d/.test(token)) {
-    return false;
-  }
-
-  /*
-    Caracteres permitidos para identificaciones.
-  */
-  if (
-    !/^[A-Z0-9./-]+$/i.test(
-      token
-    )
-  ) {
-    return false;
-  }
-
-  /*
-    Evita confundir horarios con cédulas.
-  */
-  if (
-    /^\d{1,2}:\d{2}$/.test(
-      token
-    )
-  ) {
-    return false;
-  }
-
-  return true;
-};
-
-/* =========================================================
-   EMAIL
-   ========================================================= */
-
-const cleanEmail = (
-  value = ""
-) => {
-  return String(value ?? "")
-    .trim()
-    .replace(
-      /^[<({["']+/,
-      ""
-    )
-    .replace(
-      /[>)}\]",';,:]+$/,
-      ""
-    );
-};
-
-const findEmailInText = (
-  value = ""
-) => {
-  /*
-    Deliberadamente permisivo.
-
-    Queremos capturar incluso correos con errores
-    como gmail.cpm para que App.jsx pueda marcarlos
-    como advertencia en lugar de perder el alumno.
-  */
-  const match =
-    String(value).match(
-      /[^\s<>]+@[^\s<>]+/
-    );
-
-  if (!match) {
-    return null;
-  }
-
-  const raw =
-    match[0];
-
-  const email =
-    cleanEmail(raw);
-
-  const leadingRemoved =
-    raw.indexOf(email);
-
-  const start =
-    (match.index || 0) +
-    Math.max(
-      leadingRemoved,
-      0
+    HORARIO_BLOQUES.find(
+      (block) =>
+        normKey(block) ===
+        normKey(candidate)
     );
 
   return {
-    email,
-    start,
-    end:
-      start +
-      email.length,
+    raw: original,
+
+    block:
+      mapped ||
+      candidate,
+
+    valid: true,
+
+    needsReview: false,
+
+    reason: "",
+
+    startMeridiemInferred:
+      inferredStart,
+
+    durationMinutes:
+      duration,
   };
 };
 
-/* =========================================================
-   TELÉFONO
-   ========================================================= */
 
-const cleanPhone = (
-  value = ""
+export const normalizePdfSchedule = (
+  raw = ""
 ) => {
-  const text =
-    String(value ?? "").trim();
-
-  if (!text) {
-    return "";
-  }
-
-  const hasPlus =
-    text.startsWith("+");
-
-  const digits =
-    text.replace(/\D/g, "");
-
-  if (!digits) {
-    return "";
-  }
-
-  return hasPlus
-    ? `+${digits}`
-    : digits;
+  return normalizePdfScheduleDetailed(
+    raw
+  ).block;
 };
 
-const findPhoneInText = (
-  value = ""
-) => {
-  const text =
-    String(value ?? "");
-
-  /*
-    Algunos ejemplos reales:
-
-    04129563803
-    0424-6512008
-    +584146206979
-    +58 04127208516
-    584246017953
-    4127752726
-  */
-  const regex =
-    /\+?\d[\d\s().-]{5,}\d/g;
-
-  const matches = [];
-
-  let match;
-
-  while (
-    (match =
-      regex.exec(text)) !== null
-  ) {
-    const cleaned =
-      cleanPhone(match[0]);
-
-    const digitCount =
-      cleaned.replace(
-        /\D/g,
-        ""
-      ).length;
-
-    if (
-      digitCount >= 7 &&
-      digitCount <= 15
-    ) {
-      matches.push({
-        raw: match[0],
-        phone: cleaned,
-        start: match.index,
-        end:
-          match.index +
-          match[0].length,
-      });
-    }
-  }
-
-  if (!matches.length) {
-    return null;
-  }
-
-  /*
-    El teléfono es normalmente el último
-    dato de la fila.
-  */
-  return matches[
-    matches.length - 1
-  ];
-};
 
 /* =========================================================
-   METADATOS DE PÁGINA / SECCIÓN
+   METADATOS DE CADA SECCIÓN
    ========================================================= */
 
-const createEmptyMeta = (
-  fallbackCategory = "N/A"
-) => ({
+const createEmptyMeta = () => ({
+  periodRaw: "",
+
   categoryRaw: "",
-  category:
-    fallbackCategory || "N/A",
+  category: "N/A",
 
   levelRaw: "",
-  levelNorm: "",
+  levelNorm: "N/A",
 
   scheduleRaw: "",
-  scheduleBlock: "",
+  scheduleBlock: "N/A",
+
+  scheduleValid: false,
+  scheduleNeedsReview: false,
+  scheduleReviewReason: "",
+
+  scheduleStartMeridiemInferred:
+    false,
+
+  scheduleDurationMinutes:
+    null,
 
   salonRaw: "",
   salon: "",
 
   courseId: "",
-
-  periodRaw: "",
-  sedeRaw: "",
-  professorRaw: "",
 });
 
-const resetSectionMeta = (
-  meta,
-  fallbackCategory
-) => {
-  const fresh =
-    createEmptyMeta(
-      fallbackCategory
-    );
 
-  Object.keys(meta).forEach(
-    (key) => {
-      delete meta[key];
-    }
-  );
-
-  Object.assign(
-    meta,
-    fresh
-  );
-};
-
-const extractAfterLabel = (
-  originalLine,
-  labelRegex
-) => {
-  const match =
-    originalLine.match(
-      labelRegex
-    );
-
-  if (!match) {
-    return "";
-  }
-
-  return cleanSpaces(
-    match[1] || ""
-  );
-};
+/* =========================================================
+   EXTRACCIÓN DE METADATOS
+   ========================================================= */
 
 const extractMetaFromLine = (
-  originalLine,
+  line,
   meta
 ) => {
-  const line =
-    repairCommonMojibake(
-      cleanSpaces(
-        originalLine
+  const original =
+    String(
+      line ?? ""
+    ).trim();
+
+  if (!original) {
+    return;
+  }
+
+  /*
+    PERÍODO
+  */
+
+  const periodMatch =
+    original.match(
+      /^PER[IÍ]ODO\s*:\s*(.*)$/i
+    );
+
+  if (periodMatch) {
+    meta.periodRaw =
+      String(
+        periodMatch[1] ||
+          ""
+      ).trim();
+
+    return;
+  }
+
+  /*
+    CATEGORÍA
+  */
+
+  const categoryMatch =
+    original.match(
+      /^CATEGOR[IÍ]A\s*:\s*(.*)$/i
+    );
+
+  if (categoryMatch) {
+    meta.categoryRaw =
+      String(
+        categoryMatch[1] ||
+          ""
+      ).trim();
+
+    meta.category =
+      normalizePdfCategory(
+        meta.categoryRaw
+      );
+
+    return;
+  }
+
+  /*
+    NIVEL
+  */
+
+  const levelMatch =
+    original.match(
+      /^NIVEL\s*:\s*(.*)$/i
+    );
+
+  if (levelMatch) {
+    meta.levelRaw =
+      String(
+        levelMatch[1] ||
+          ""
+      ).trim();
+
+    meta.levelNorm =
+      normalizePdfLevel(
+        meta.levelRaw
+      );
+
+    return;
+  }
+
+  /*
+    HORARIO
+  */
+
+  const scheduleMatch =
+    original.match(
+      /^HORARIO\s*:\s*(.*)$/i
+    );
+
+  if (scheduleMatch) {
+    meta.scheduleRaw =
+      String(
+        scheduleMatch[1] ||
+          ""
+      ).trim();
+
+    const schedule =
+      normalizePdfScheduleDetailed(
+        meta.scheduleRaw
+      );
+
+    meta.scheduleBlock =
+      schedule.block;
+
+    meta.scheduleValid =
+      schedule.valid;
+
+    meta.scheduleNeedsReview =
+      schedule.needsReview;
+
+    meta.scheduleReviewReason =
+      schedule.reason;
+
+    meta.scheduleStartMeridiemInferred =
+      schedule.startMeridiemInferred;
+
+    meta.scheduleDurationMinutes =
+      schedule.durationMinutes;
+
+    return;
+  }
+
+  /*
+    SALÓN + CURSO ID
+
+    Ejemplo:
+
+    Salón: C11 Curso ID: 65424
+  */
+
+  const salonMatch =
+    original.match(
+      /^SAL[ÓO]N\s*:\s*(.*?)\s+CURSO\s*ID\s*:\s*([A-Z0-9-]+)/i
+    );
+
+  if (salonMatch) {
+    meta.salonRaw =
+      original;
+
+    meta.salon =
+      String(
+        salonMatch[1] ||
+          ""
       )
-    );
+        .trim()
+        .toUpperCase();
 
-  const comparable =
-    normalizeComparableText(
-      line
-    );
+    meta.courseId =
+      String(
+        salonMatch[2] ||
+          ""
+      ).trim();
 
-  /* -------------------------
-     CATEGORÍA
-     ------------------------- */
-
-  if (
-    comparable.includes(
-      "CATEGORIA:"
-    )
-  ) {
-    const raw =
-      extractAfterLabel(
-        line,
-        /CATEGOR[IÍ]A\s*:\s*(.+)$/i
-      );
-
-    if (raw) {
-      meta.categoryRaw =
-        raw;
-
-      meta.category =
-        normalizeCategory(
-          raw
-        );
-    }
+    return;
   }
 
-  /* -------------------------
-     NIVEL
-     ------------------------- */
+  /*
+    Por seguridad, si existe "Curso ID" pero
+    el salón tiene alguna forma inesperada.
+  */
 
   if (
-    comparable.includes(
-      "NIVEL:"
-    ) ||
-    comparable.includes(
-      "LEVEL:"
-    )
-  ) {
-    let raw =
-      extractAfterLabel(
-        line,
-        /NIVEL\s*:\s*(.+)$/i
-      );
-
-    if (!raw) {
-      raw =
-        extractAfterLabel(
-          line,
-          /LEVEL\s*:\s*(.+)$/i
-        );
-    }
-
-    if (raw) {
-      meta.levelRaw =
-        raw;
-
-      meta.levelNorm =
-        normalizeLevel(
-          raw
-        );
-    }
-  }
-
-  /* -------------------------
-     HORARIO
-     ------------------------- */
-
-  if (
-    comparable.includes(
-      "HORARIO:"
-    )
-  ) {
-    const raw =
-      extractAfterLabel(
-        line,
-        /HORARIO\s*:\s*(.+)$/i
-      );
-
-    if (raw) {
-      meta.scheduleRaw =
-        raw;
-
-      meta.scheduleBlock =
-        normalizeHorario(
-          raw
-        );
-    }
-  }
-
-  /* -------------------------
-     SALÓN
-     ------------------------- */
-
-  if (
-    comparable.includes(
-      "SALON:"
+    /CURSO\s*ID\s*:/i.test(
+      original
     )
   ) {
     meta.salonRaw =
-      line;
+      original;
 
-    const salonMatch =
-      comparable.match(
-        /SALON\s*:\s*([A-Z0-9-]+)/
-      );
-
-    if (salonMatch) {
-      meta.salon =
-        salonMatch[1];
-    }
-  }
-
-  /* -------------------------
-     COURSE ID
-
-     Se procesa independientemente del salón.
-
-     Así no perdemos courseId si el PDF modifica
-     ligeramente la línea.
-     ------------------------- */
-
-  if (
-    comparable.includes(
-      "CURSO ID:"
-    ) ||
-    comparable.includes(
-      "COURSE ID:"
-    )
-  ) {
     const courseMatch =
-      comparable.match(
-        /(?:CURSO|COURSE)\s*ID\s*:\s*(\d+)/
+      original.match(
+        /CURSO\s*ID\s*:\s*([A-Z0-9-]+)/i
       );
 
     if (courseMatch) {
       meta.courseId =
-        courseMatch[1];
+        String(
+          courseMatch[1] ||
+            ""
+        ).trim();
     }
-  }
 
-  /* -------------------------
-     PERÍODO
-     ------------------------- */
-
-  if (
-    comparable.startsWith(
-      "PERIODO:"
-    )
-  ) {
-    meta.periodRaw =
-      extractAfterLabel(
-        line,
-        /PER[IÍ]ODO\s*:\s*(.+)$/i
+    const simpleSalon =
+      original.match(
+        /SAL[ÓO]N\s*:\s*([A-Z0-9-]+)/i
       );
-  }
 
-  /* -------------------------
-     SEDE
-     ------------------------- */
-
-  if (
-    comparable.startsWith(
-      "SEDE:"
-    )
-  ) {
-    meta.sedeRaw =
-      extractAfterLabel(
-        line,
-        /SEDE\s*:\s*(.+)$/i
-      );
-  }
-
-  /* -------------------------
-     PROFESOR
-     ------------------------- */
-
-  if (
-    comparable.startsWith(
-      "PROFESOR:"
-    )
-  ) {
-    meta.professorRaw =
-      extractAfterLabel(
-        line,
-        /PROFESOR\s*:\s*(.+)$/i
-      );
+    if (simpleSalon) {
+      meta.salon =
+        String(
+          simpleSalon[1] ||
+            ""
+        )
+          .trim()
+          .toUpperCase();
+    }
   }
 };
 
+
 /* =========================================================
-   LÍNEAS QUE NO SON ALUMNOS
+   LÍNEAS QUE NO SON ESTUDIANTES
    ========================================================= */
 
 const shouldSkipLine = (
-  line = ""
+  line
 ) => {
-  const up =
+  const upper =
     normalizeComparableText(
       line
     );
 
-  if (!up) {
+  if (!upper) {
     return true;
   }
 
   if (
-    up.includes(
+    upper.includes(
       "CENTRO VENEZOLANO AMERICANO"
     )
   ) {
@@ -1075,15 +1045,15 @@ const shouldSkipLine = (
   }
 
   if (
-    up.includes(
-      "LISTA DE ALUMNOS"
+    upper.includes(
+      "LISTA DE ALUMNOS INSCRITOS"
     )
   ) {
     return true;
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "R.I.F"
     )
   ) {
@@ -1091,7 +1061,7 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "SEDE:"
     )
   ) {
@@ -1099,7 +1069,7 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "FECHA:"
     )
   ) {
@@ -1107,7 +1077,7 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "PERIODO:"
     )
   ) {
@@ -1115,7 +1085,7 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "CATEGORIA:"
     )
   ) {
@@ -1123,18 +1093,15 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "NIVEL:"
-    ) ||
-    up.startsWith(
-      "LEVEL:"
     )
   ) {
     return true;
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "HORARIO:"
     )
   ) {
@@ -1142,7 +1109,7 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "PROFESOR:"
     )
   ) {
@@ -1150,7 +1117,7 @@ const shouldSkipLine = (
   }
 
   if (
-    up.startsWith(
+    upper.startsWith(
       "SALON:"
     )
   ) {
@@ -1158,22 +1125,14 @@ const shouldSkipLine = (
   }
 
   if (
-    up.includes(
+    upper.includes(
       "APELLIDOS"
     ) &&
-    up.includes(
-      "EMAIL"
-    )
-  ) {
-    return true;
-  }
-
-  if (
-    up.includes(
+    upper.includes(
       "NOMBRES"
     ) &&
-    up.includes(
-      "TELEFONO"
+    upper.includes(
+      "EMAIL"
     )
   ) {
     return true;
@@ -1182,249 +1141,455 @@ const shouldSkipLine = (
   return false;
 };
 
+
 /* =========================================================
-   DETECCIÓN DE POSIBLE FILA DE ESTUDIANTE
+   TELÉFONO
    ========================================================= */
 
-const looksLikeStudentLine = (
-  line = ""
+const extractTrailingPhone = (
+  value = ""
 ) => {
-  const cleaned =
-    cleanSpaces(line);
+  const text =
+    String(
+      value ?? ""
+    ).trim();
 
-  const rowMatch =
-    cleaned.match(
-      /^(\d{1,4})\s+(\S+)\s+(.+)$/
-    );
-
-  if (!rowMatch) {
-    return false;
+  if (!text) {
+    return {
+      phone: "",
+      remaining: "",
+    };
   }
 
-  const possibleId =
-    rowMatch[2];
+  /*
+    Detecta al final:
 
-  return isPossibleStudentId(
-    possibleId
-  );
+    04141234567
+    0414-1234567
+    0414 123 4567
+    +584121234567
+    +58 424-1234567
+    584121234567
+    50767113740
+  */
+
+  const match =
+    text.match(
+      /(\+?\d(?:[\d\s().-]*\d)?)\s*$/
+    );
+
+  if (!match) {
+    return {
+      phone: "",
+      remaining: text,
+    };
+  }
+
+  const candidate =
+    String(
+      match[1] || ""
+    ).trim();
+
+  const digitCount =
+    candidate.replace(
+      /\D/g,
+      ""
+    ).length;
+
+  /*
+    Evitamos interpretar accidentalmente
+    pequeños números como teléfonos.
+  */
+
+  if (
+    digitCount < 7 ||
+    digitCount > 15
+  ) {
+    return {
+      phone: "",
+      remaining: text,
+    };
+  }
+
+  const remaining =
+    text
+      .slice(
+        0,
+        match.index
+      )
+      .trim();
+
+  return {
+    phone: candidate,
+
+    remaining,
+  };
 };
 
+
 /* =========================================================
-   PARSEO DE FILA DE ESTUDIANTE
+   EMAIL
+   ========================================================= */
+
+const extractEmailAndName = (
+  value = ""
+) => {
+  let text =
+    String(
+      value ?? ""
+    ).trim();
+
+  if (!text) {
+    return {
+      name: "",
+      email: "",
+      emailRaw: "",
+      emailValid: false,
+      missingEmail: true,
+    };
+  }
+
+  /*
+    Primero buscamos cualquier token que tenga @.
+
+    Incluso si el dominio está mal escrito, por ejemplo:
+
+    @hotmail.cin
+    @hotmail.xom
+    @gm,ail.com
+
+    necesitamos conservarlo para auditoría.
+  */
+
+  const atMatch =
+    text.match(
+      /(?:^|\s)([^\s]+@[^\s]+)(?=\s|$)/
+    );
+
+  if (atMatch) {
+    const emailRaw =
+      String(
+        atMatch[1] || ""
+      ).trim();
+
+    const emailStart =
+      atMatch.index +
+      atMatch[0].indexOf(
+        emailRaw
+      );
+
+    const name =
+      text
+        .slice(
+          0,
+          emailStart
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+    const emailValid =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(
+        emailRaw
+      );
+
+    return {
+      name,
+
+      email:
+        emailRaw,
+
+      emailRaw,
+
+      emailValid,
+
+      missingEmail: false,
+    };
+  }
+
+  /*
+    Algunos registros pueden tener un correo
+    parecido a un email pero sin @.
+
+    Ejemplo real posible:
+
+    nombreusuario gmail.com
+
+    o:
+
+    nombreusuariogmail.com
+
+    No lo descartamos: lo guardamos como emailRaw
+    inválido para revisión.
+  */
+
+  const malformedEmailMatch =
+    text.match(
+      /(?:^|\s)([^\s]+\.(?:COM|NET|ORG|ES|EDU|VE|CIN|XOM))$/i
+    );
+
+  if (
+    malformedEmailMatch
+  ) {
+    const emailRaw =
+      String(
+        malformedEmailMatch[1] ||
+          ""
+      ).trim();
+
+    const emailStart =
+      malformedEmailMatch.index +
+      malformedEmailMatch[0].indexOf(
+        emailRaw
+      );
+
+    const name =
+      text
+        .slice(
+          0,
+          emailStart
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+    return {
+      name,
+
+      email:
+        emailRaw,
+
+      emailRaw,
+
+      emailValid: false,
+
+      missingEmail: false,
+    };
+  }
+
+  /*
+    PDFs reales también pueden usar:
+
+    -
+    ...
+    .......
+
+    como marcador de email faltante.
+  */
+
+  const placeholderMatch =
+    text.match(
+      /(?:\s|^)(-|\.+)\s*$/
+    );
+
+  if (
+    placeholderMatch
+  ) {
+    text =
+      text
+        .slice(
+          0,
+          placeholderMatch.index
+        )
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim();
+
+    return {
+      name: text,
+
+      email: "",
+
+      emailRaw:
+        placeholderMatch[1],
+
+      emailValid: false,
+
+      missingEmail: true,
+    };
+  }
+
+  /*
+    No existe un separador confiable de email.
+
+    Conservamos toda la parte textual como nombre
+    para no eliminar datos silenciosamente.
+  */
+
+  return {
+    name:
+      text
+        .replace(
+          /\s+/g,
+          " "
+        )
+        .trim(),
+
+    email: "",
+
+    emailRaw: "",
+
+    emailValid: false,
+
+    missingEmail: true,
+  };
+};
+
+
+/* =========================================================
+   FILA DE ESTUDIANTE
    ========================================================= */
 
 const parseStudentLine = (
-  originalLine,
-  meta
+  line,
+  meta,
+  fileName
 ) => {
-  const line =
-    repairCommonMojibake(
-      cleanSpaces(
-        originalLine
-      )
-    );
+  const original =
+    String(
+      line ?? ""
+    ).trim();
 
-  /*
-    Primero separa únicamente el número de fila.
-
-    Ejemplo:
-
-    6 17738636-1 MACHADO MONTIEL...
-  */
-  const rowMatch =
-    line.match(
-      /^(\d{1,4})\s+(.+)$/
-    );
-
-  if (!rowMatch) {
+  if (!original) {
     return null;
   }
 
-  const sourceRow =
+  /*
+    Ejemplos reales:
+
+    1 17912684 BERMUDEZ FLORES ...
+
+    1 18284765-1 FERNANDEZ ESPINOZA ...
+
+    La segunda columna es el ID.
+
+    NO eliminamos el sufijo "-1", "-2", "-3", etc.
+    porque forma parte de la identificación mostrada
+    en las listas de Niños/Jóvenes.
+  */
+
+  const match =
+    original.match(
+      /^(\d+)\s+([A-Z0-9][A-Z0-9.\-]*)\s+(.+)$/i
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const rowNumber =
     parseInt(
-      rowMatch[1],
+      match[1],
       10
     );
 
-  const afterRow =
-    cleanSpaces(
-      rowMatch[2]
-    );
-
-  /*
-    Ahora separa la identificación como primer token.
-
-    A diferencia de la versión anterior,
-    NO exige que sean únicamente dígitos.
-  */
-  const idMatch =
-    afterRow.match(
-      /^(\S+)\s+(.+)$/
-    );
-
-  if (!idMatch) {
-    return null;
-  }
-
   const id =
     String(
-      idMatch[1]
+      match[2] || ""
+    ).trim();
+
+  let remaining =
+    String(
+      match[3] || ""
     ).trim();
 
   if (
-    !isPossibleStudentId(
-      id
-    )
+    !id ||
+    !remaining
   ) {
     return null;
   }
 
-  const rest =
-    cleanSpaces(
-      idMatch[2]
+  /*
+    Extraemos primero el teléfono porque siempre
+    aparece al final de la fila.
+  */
+
+  const phoneResult =
+    extractTrailingPhone(
+      remaining
     );
 
-  if (!rest) {
-    return null;
-  }
+  const phone =
+    phoneResult.phone;
 
-  /* =======================================================
-     EMAIL
-     ======================================================= */
+  remaining =
+    phoneResult.remaining;
 
-  const emailInfo =
-    findEmailInText(
-      rest
+  /*
+    Después identificamos email y nombre.
+  */
+
+  const identityResult =
+    extractEmailAndName(
+      remaining
     );
-
-  let email = "";
-
-  let namePart = "";
-
-  let afterEmail = "";
-
-  if (emailInfo) {
-    email =
-      emailInfo.email;
-
-    namePart =
-      cleanSpaces(
-        rest.slice(
-          0,
-          emailInfo.start
-        )
-      );
-
-    afterEmail =
-      cleanSpaces(
-        rest.slice(
-          emailInfo.end
-        )
-      );
-  } else {
-    /*
-      Si no hay email, intentamos detectar teléfono
-      al final de la fila.
-
-      Así no convertimos el teléfono en parte del nombre.
-    */
-    const phoneInfo =
-      findPhoneInText(
-        rest
-      );
-
-    if (phoneInfo) {
-      namePart =
-        cleanSpaces(
-          rest.slice(
-            0,
-            phoneInfo.start
-          )
-        );
-    } else {
-      namePart =
-        rest;
-    }
-  }
-
-  /* =======================================================
-     TELÉFONO
-     ======================================================= */
-
-  let phone = "";
-
-  if (emailInfo) {
-    const phoneInfo =
-      findPhoneInText(
-        afterEmail
-      );
-
-    if (phoneInfo) {
-      phone =
-        phoneInfo.phone;
-    }
-  } else {
-    const phoneInfo =
-      findPhoneInText(
-        rest
-      );
-
-    if (phoneInfo) {
-      phone =
-        phoneInfo.phone;
-    }
-  }
-
-  /* =======================================================
-     NOMBRE
-     ======================================================= */
 
   const name =
-    cleanSpaces(
-      namePart
-    );
+    identityResult.name;
 
   if (!name) {
     return null;
   }
 
   /*
-    Evita que una fila de metadatos sea interpretada
-    accidentalmente como alumno.
+    La frecuencia se obtiene de múltiples fuentes.
+
+    Prioridad:
+
+    1. Horario real de la sección.
+    2. Periodo.
+    3. Nombre del archivo.
+
+    El motor frecuencia.js también tolera errores
+    como THRUSDAY.
   */
-  const nameComparable =
-    normalizeComparableText(
-      name
-    );
 
-  if (
-    nameComparable.includes(
-      "APELLIDOS"
-    ) ||
-    nameComparable.includes(
-      "NOMBRES"
-    ) ||
-    nameComparable.includes(
-      "CURSO ID"
-    )
-  ) {
-    return null;
-  }
+  const frequency =
+    detectFrequency({
+      scheduleRaw:
+        meta.scheduleRaw,
 
-  /* =======================================================
-     RESULTADO
-     ======================================================= */
+      periodRaw:
+        meta.periodRaw,
+
+      fileName,
+    });
 
   return {
-    sourceRow,
+    rowNumber,
+
+    /* -----------------------------------------------------
+       IDENTIDAD
+       ----------------------------------------------------- */
 
     id,
 
     name,
 
-    email,
+    email:
+      identityResult.email,
+
+    emailRaw:
+      identityResult.emailRaw,
+
+    emailValid:
+      identityResult.emailValid,
+
+    missingEmail:
+      identityResult.missingEmail,
 
     phone,
+
+    /* -----------------------------------------------------
+       CATEGORÍA
+       ----------------------------------------------------- */
 
     category:
       meta.category ||
@@ -1434,21 +1599,100 @@ const parseStudentLine = (
       meta.categoryRaw ||
       "",
 
+    /* -----------------------------------------------------
+       NIVEL
+       ----------------------------------------------------- */
+
     level:
       meta.levelRaw ||
       "N/A",
+
+    levelRaw:
+      meta.levelRaw ||
+      "",
 
     levelNorm:
       meta.levelNorm ||
       "N/A",
 
+    /* -----------------------------------------------------
+       FRECUENCIA
+       ----------------------------------------------------- */
+
+    frequencyNorm:
+      frequency.frequency ||
+      FREQUENCIES.NA,
+
+    frequencyRaw:
+      meta.scheduleRaw ||
+      "",
+
+    frequencySource:
+      frequency.source ||
+      "none",
+
+    frequencyConfidence:
+      frequency.confidence ||
+      "low",
+
+    frequencyDays:
+      frequency.days ||
+      [],
+
+    frequencyCorrections:
+      frequency.corrections ||
+      [],
+
+    /*
+      Compatibilidad temporal.
+
+      El próximo archivo que cambiaremos será
+      continuidad.js y después App.jsx.
+
+      Mientras tanto mantenemos schedule.
+    */
+
     schedule:
       meta.scheduleRaw ||
       "N/A",
 
+    /* -----------------------------------------------------
+       HORARIO
+       ----------------------------------------------------- */
+
+    scheduleRaw:
+      meta.scheduleRaw ||
+      "",
+
     scheduleBlock:
       meta.scheduleBlock ||
       "N/A",
+
+    scheduleValid:
+      Boolean(
+        meta.scheduleValid
+      ),
+
+    scheduleNeedsReview:
+      Boolean(
+        meta.scheduleNeedsReview
+      ),
+
+    scheduleReviewReason:
+      meta.scheduleReviewReason ||
+      "",
+
+    scheduleStartMeridiemInferred:
+      Boolean(
+        meta.scheduleStartMeridiemInferred
+      ),
+
+    scheduleDurationMinutes:
+      meta.scheduleDurationMinutes,
+
+    /* -----------------------------------------------------
+       CURSO
+       ----------------------------------------------------- */
 
     salon:
       meta.salon ||
@@ -1458,19 +1702,92 @@ const parseStudentLine = (
       meta.courseId ||
       "",
 
-    period:
+    /* -----------------------------------------------------
+       PERÍODO Y ORIGEN
+       ----------------------------------------------------- */
+
+    periodRaw:
       meta.periodRaw ||
       "",
 
-    sede:
-      meta.sedeRaw ||
-      "",
-
-    professor:
-      meta.professorRaw ||
+    sourceFile:
+      fileName ||
       "",
   };
 };
+
+
+/* =========================================================
+   VALIDACIÓN BÁSICA DE METADATOS
+   ========================================================= */
+
+const validateStudentMetadata = (
+  student
+) => {
+  const warnings = [];
+
+  if (
+    !student.category ||
+    student.category ===
+      "N/A"
+  ) {
+    warnings.push(
+      "category_not_recognized"
+    );
+  }
+
+  if (
+    !student.levelNorm ||
+    student.levelNorm ===
+      "N/A"
+  ) {
+    warnings.push(
+      "level_not_recognized"
+    );
+  }
+
+  if (
+    !student.frequencyNorm ||
+    student.frequencyNorm ===
+      FREQUENCIES.NA
+  ) {
+    warnings.push(
+      "frequency_not_recognized"
+    );
+  }
+
+  if (
+    student.scheduleNeedsReview
+  ) {
+    warnings.push(
+      student.scheduleReviewReason ||
+        "schedule_needs_review"
+    );
+  }
+
+  if (
+    student.missingEmail
+  ) {
+    warnings.push(
+      "missing_email"
+    );
+  } else if (
+    !student.emailValid
+  ) {
+    warnings.push(
+      "invalid_email_format"
+    );
+  }
+
+  if (!student.phone) {
+    warnings.push(
+      "missing_phone"
+    );
+  }
+
+  return warnings;
+};
+
 
 /* =========================================================
    PARSER PRINCIPAL
@@ -1481,7 +1798,7 @@ export async function parseCevazPdf(
 ) {
   if (!file) {
     throw new Error(
-      "No se recibió un archivo PDF válido."
+      "No se recibió un archivo PDF."
     );
   }
 
@@ -1491,100 +1808,61 @@ export async function parseCevazPdf(
     );
 
   if (
-    !text ||
-    !String(text).trim()
+    !String(
+      text || ""
+    ).trim()
   ) {
     throw new Error(
-      `El PDF "${file.name || "sin nombre"}" no contiene texto extraíble.`
+      `El archivo "${file.name}" no contiene texto extraíble.`
     );
   }
-
-  const cleanedText =
-    repairCommonMojibake(
-      text
-    );
 
   const lines =
-    cleanedText
+    String(
+      text || ""
+    )
       .split(/\r?\n/)
-      .map((line) =>
-        cleanSpaces(line)
-      )
-      .filter(Boolean);
-
-  if (!lines.length) {
-    throw new Error(
-      `El PDF "${file.name || "sin nombre"}" no produjo líneas procesables.`
-    );
-  }
-
-  /*
-    Solo se usa como fallback en páginas donde,
-    por algún problema del PDF, no aparezca la categoría.
-  */
-  const fallbackCategory =
-    inferDocumentCategory(
-      cleanedText
-    );
+      .map(
+        (line) =>
+          line.trim()
+      );
 
   const meta =
-    createEmptyMeta(
-      fallbackCategory
-    );
+    createEmptyMeta();
 
   const students = [];
 
   /*
-    Estas filas permiten detectar una situación
-    peligrosa:
+    El parser actualiza meta cada vez que encuentra:
 
-    El parser ve algo que parece un alumno,
-    pero no logra interpretarlo.
+    Categoría
+    Nivel
+    Horario
+    Salón / Curso ID
 
-    Antes simplemente se descartaba silenciosamente.
+    Esto permite que un PDF de muchas páginas contenga
+    distintas secciones y niveles sin mezclar sus datos.
   */
-  const suspiciousRows = [];
 
   for (
-    const originalLine
-    of lines
+    let index = 0;
+    index < lines.length;
+    index++
   ) {
     const line =
-      cleanSpaces(
-        originalLine
-      );
+      lines[index];
 
-    const comparable =
-      normalizeComparableText(
-        line
-      );
-
-    /* =====================================================
-       NUEVA PÁGINA / NUEVA SECCIÓN
-       ===================================================== */
-
-    if (
-      comparable.includes(
-        "CENTRO VENEZOLANO AMERICANO"
-      )
-    ) {
-      /*
-        Evita que nivel, horario, salón o courseId
-        de una página anterior se filtren a la siguiente
-        si falta accidentalmente algún encabezado.
-      */
-      resetSectionMeta(
-        meta,
-        fallbackCategory
-      );
+    if (!line) {
+      continue;
     }
 
     /*
-      MUY IMPORTANTE:
+      PRIMERO actualizamos metadatos.
 
-      Se extraen metadatos ANTES de decidir
-      si la línea debe omitirse como alumno.
+      Después decidimos si la línea debe descartarse
+      como posible estudiante.
     */
+
     extractMetaFromLine(
       line,
       meta
@@ -1601,77 +1879,67 @@ export async function parseCevazPdf(
     const student =
       parseStudentLine(
         line,
-        meta
+        meta,
+        file.name
       );
 
-    if (
-      student &&
-      student.id
-    ) {
-      students.push(
-        student
-      );
-
+    if (!student) {
       continue;
     }
 
     /*
-      Si claramente parece una fila de estudiante
-      pero no se pudo interpretar, NO la ocultamos.
+      Registramos advertencias por estudiante.
 
-      Se registra para detener el análisis y permitir
-      detectar una pérdida silenciosa de datos.
+      No bloqueamos la importación por un email malo o
+      por un teléfono faltante.
+
+      Esos problemas deben aparecer posteriormente como
+      calidad de datos.
     */
-    if (
-      looksLikeStudentLine(
-        line
-      )
-    ) {
-      suspiciousRows.push(
-        line
+
+    const parseWarnings =
+      validateStudentMetadata(
+        student
       );
-    }
+
+    students.push({
+      ...student,
+
+      parseWarnings,
+
+      hasParseWarnings:
+        parseWarnings.length >
+        0,
+    });
   }
 
-  /* =======================================================
-     VALIDACIÓN DE FILAS SOSPECHOSAS
-     ======================================================= */
-
-  if (
-    suspiciousRows.length
-  ) {
-    const examples =
-      suspiciousRows
-        .slice(0, 3)
-        .join(" || ");
-
+  if (!students.length) {
     throw new Error(
-      [
-        `Se detectaron ${suspiciousRows.length} fila(s) que parecen corresponder a estudiantes pero no pudieron interpretarse correctamente en "${file.name || "PDF"}".`,
-        `Ejemplos: ${examples}`,
-        "El análisis fue detenido para evitar omitir alumnos silenciosamente.",
-      ].join(" ")
-    );
-  }
-
-  /* =======================================================
-     VALIDACIÓN DE RESULTADO
-     ======================================================= */
-
-  if (
-    !students.length
-  ) {
-    throw new Error(
-      `No se pudo extraer ningún estudiante del PDF "${file.name || "sin nombre"}".`
+      `No se encontraron estudiantes válidos en "${file.name}".`
     );
   }
 
   return students;
 }
 
+
 /* =========================================================
-   EXPORTACIÓN PARA APP.JSX
+   EXPORTACIONES PARA DASHBOARD Y TESTS
    ========================================================= */
 
 export const __HORARIO_BLOQUES__ =
   HORARIO_BLOQUES;
+
+export const __parseHelpers__ = {
+  normalizePdfLevel,
+
+  normalizePdfCategory,
+
+  normalizePdfSchedule,
+
+  normalizePdfScheduleDetailed,
+
+  extractTrailingPhone,
+
+  extractEmailAndName,
+};
