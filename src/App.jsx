@@ -249,6 +249,538 @@ const createEmptyStats = () => ({
 
 
 /* =========================================================
+   ADAPTADOR SEGURO DE DATOS
+   ========================================================= */
+
+const asArray = (
+  value
+) =>
+  Array.isArray(
+    value
+  )
+    ? value
+    : EMPTY_ARRAY;
+
+
+const numberOrZero = (
+  value
+) => {
+  const number =
+    Number(
+      value
+    );
+
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : 0;
+};
+
+
+const percentOrCalculated = (
+  value,
+  numerator,
+  denominator
+) => {
+  const explicit =
+    Number(
+      value
+    );
+
+  if (
+    Number.isFinite(
+      explicit
+    )
+  ) {
+    return explicit;
+  }
+
+  const n =
+    numberOrZero(
+      numerator
+    );
+
+  const d =
+    numberOrZero(
+      denominator
+    );
+
+  if (
+    d <= 0
+  ) {
+    return 0;
+  }
+
+  return Math.round(
+    (
+      n /
+      d
+    ) *
+      1000
+  ) / 10;
+};
+
+
+const buildSafeStats = (
+  analysisData
+) => {
+  const empty =
+    createEmptyStats();
+
+  if (
+    !analysisData ||
+    typeof analysisData !==
+      "object"
+  ) {
+    return empty;
+  }
+
+  const totals =
+    analysisData?.totals ||
+    {};
+
+  const rates =
+    analysisData?.rates ||
+    {};
+
+  const segmentation =
+    analysisData?.segmentation ||
+    {};
+
+  const level1 =
+    segmentation?.level1 ||
+    segmentation?.newStudents ||
+    {};
+
+  const regular =
+    segmentation?.regularStudents ||
+    {};
+
+  const analytics =
+    analysisData?.analytics ||
+    {};
+
+  const density =
+    analytics?.density ||
+    {};
+
+  const transitions =
+    analytics?.categoryTransitions ||
+    {};
+
+  const topVolume =
+    analytics?.topScheduleByVolume ||
+    {};
+
+  const topRate =
+    analytics?.topScheduleByRate ||
+    {};
+
+  const lists =
+    analysisData?.lists ||
+    {};
+
+  const lostList =
+    asArray(
+      lists?.lost
+    );
+
+  const shouldContinueList =
+    asArray(
+      lists?.shouldContinue
+    );
+
+  const reenrolledList =
+    asArray(
+      lists?.reenrolledPrevious
+    );
+
+  const graduatesList =
+    asArray(
+      lists?.graduates
+    );
+
+  const terminalPreviousList =
+    asArray(
+      lists?.terminalPrevious
+    );
+
+  const terminalReappearedList =
+    asArray(
+      lists?.terminalReappeared
+    );
+
+  const currentLevel1List =
+    asArray(
+      lists?.currentLevel1
+    );
+
+  const notPresentPreviousList =
+    asArray(
+      lists?.notPresentPrevious
+    );
+
+  const notPresentL02List =
+    asArray(
+      lists?.notPresentPreviousLevel2Plus
+    );
+
+  const frequencyChangesList =
+    asArray(
+      lists?.frequencyChanges
+    );
+
+  const ninosJovenesList =
+    asArray(
+      lists?.ninosJovenes
+    );
+
+  const ninosAdultosList =
+    asArray(
+      lists?.ninosAdultos
+    );
+
+  const jovenesAdultosList =
+    asArray(
+      lists?.jovenesAdultos
+    );
+
+  const shouldContinue =
+    numberOrZero(
+      totals.shouldContinue ??
+        totals.eligible ??
+        shouldContinueList.length
+    );
+
+  const reenrolled =
+    numberOrZero(
+      totals.reenrolled ??
+        reenrolledList.length
+    );
+
+  const lost =
+    numberOrZero(
+      totals.lost ??
+        lostList.length
+    );
+
+  const previousLevel1 =
+    numberOrZero(
+      level1.previous ??
+        level1.eligible
+    );
+
+  const regularPrevious =
+    numberOrZero(
+      regular.previous ??
+        regular.eligible
+    );
+
+  const level1Lost =
+    numberOrZero(
+      level1.lost
+    );
+
+  const regularLost =
+    numberOrZero(
+      regular.lost
+    );
+
+  return {
+    ...empty,
+
+    oldTotal:
+      numberOrZero(
+        totals.previous
+      ),
+
+    newTotal:
+      numberOrZero(
+        totals.current
+      ),
+
+    shouldContinue,
+
+    reenrolled,
+
+    reenrolledPct:
+      percentOrCalculated(
+        rates.retention,
+        reenrolled,
+        shouldContinue
+      ),
+
+    lost,
+
+    lostPct:
+      percentOrCalculated(
+        rates.attrition,
+        lost,
+        shouldContinue
+      ),
+
+    previousLevel1,
+
+    regularPrevious,
+
+    level1Lost,
+
+    level1LostPct:
+      percentOrCalculated(
+        level1.attritionRate ??
+          rates.level1Attrition ??
+          rates.newStudentAttrition,
+        level1Lost,
+        previousLevel1
+      ),
+
+    regularLost,
+
+    regularLostPct:
+      percentOrCalculated(
+        regular.attritionRate ??
+          rates.regularAttrition,
+        regularLost,
+        regularPrevious
+      ),
+
+    transNinosJovenes:
+      numberOrZero(
+        transitions.ninosJovenes ??
+          ninosJovenesList.length
+      ),
+
+    transNinosAdultos:
+      numberOrZero(
+        transitions.ninosAdultos ??
+          ninosAdultosList.length
+      ),
+
+    transJovenesAdultos:
+      numberOrZero(
+        transitions.jovenesAdultos ??
+          jovenesAdultosList.length
+      ),
+
+    categoryTransitionsAvailable:
+      Boolean(
+        analytics.categoryTransitionsAvailable ??
+          (
+            ninosJovenesList.length +
+              ninosAdultosList.length +
+              jovenesAdultosList.length >
+            0
+          )
+      ),
+
+    avgDensity:
+      numberOrZero(
+        density.average
+      ),
+
+    activeSections:
+      numberOrZero(
+        density.sections
+      ),
+
+    topHorarioFugas:
+      topVolume.schedule ||
+      "N/A",
+
+    topHorarioFugasCount:
+      numberOrZero(
+        topVolume.lost
+      ),
+
+    topHorarioFugasPrevious:
+      numberOrZero(
+        topVolume.previous ??
+          topVolume.eligible
+      ),
+
+    topHorarioFugasRate:
+      numberOrZero(
+        topVolume.rate
+      ),
+
+    topHorarioRate:
+      topRate.schedule ||
+      "N/A",
+
+    topHorarioRatePct:
+      numberOrZero(
+        topRate.rate
+      ),
+
+    topHorarioRateLost:
+      numberOrZero(
+        topRate.lost
+      ),
+
+    topHorarioRatePrevious:
+      numberOrZero(
+        topRate.previous ??
+          topRate.eligible
+      ),
+
+    graduados:
+      numberOrZero(
+        totals.graduates ??
+          graduatesList.length
+      ),
+
+    terminalPrevious:
+      numberOrZero(
+        totals.terminalPrevious ??
+          terminalPreviousList.length
+      ),
+
+    terminalReappeared:
+      numberOrZero(
+        totals.terminalReappeared ??
+          totals.graduatesPresentAgain ??
+          terminalReappearedList.length
+      ),
+
+    currentLevel1:
+      numberOrZero(
+        totals.currentLevel1 ??
+          totals.newLevel1 ??
+          currentLevel1List.length
+      ),
+
+    notPresentPrevious:
+      numberOrZero(
+        totals.notPresentPrevious ??
+          totals.externalEntrants ??
+          notPresentPreviousList.length
+      ),
+
+    notPresentPreviousL02Plus:
+      numberOrZero(
+        totals.notPresentPreviousLevel2Plus ??
+          totals.externalLevel2Plus ??
+          notPresentL02List.length
+      ),
+
+    cambiosFreq:
+      numberOrZero(
+        totals.frequencyChanges ??
+          frequencyChangesList.length
+      ),
+
+    reconciliationOk:
+      Boolean(
+        analysisData?.quality
+          ?.reconciliation
+          ?.ok
+      ),
+  };
+};
+
+
+/* =========================================================
+   PROTECCIÓN CONTRA PANTALLA BLANCA
+   ========================================================= */
+
+class DashboardErrorBoundary extends React.Component {
+  constructor(
+    props
+  ) {
+    super(
+      props
+    );
+
+    this.state = {
+      error:
+        null,
+    };
+  }
+
+
+  static getDerivedStateFromError(
+    error
+  ) {
+    return {
+      error,
+    };
+  }
+
+
+  componentDidCatch(
+    error,
+    errorInfo
+  ) {
+    console.error(
+      "Error de renderizado en Dashboard de Continuidad:",
+      error,
+      errorInfo
+    );
+  }
+
+
+  render() {
+    if (
+      this.state.error
+    ) {
+      const message =
+        this.state.error?.message ||
+        "Se produjo un error inesperado al mostrar los resultados.";
+
+      return (
+        <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
+
+          <div className="max-w-3xl mx-auto mt-8 bg-white border border-red-200 rounded-2xl shadow-sm p-6">
+
+            <div className="flex items-start gap-3">
+
+              <AlertTriangle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+
+              <div className="min-w-0">
+
+                <h1 className="text-xl font-bold text-red-700">
+                  No se pudo mostrar el dashboard
+                </h1>
+
+                <p className="text-sm text-slate-600 mt-2">
+                  La aplicación detectó un error de renderizado y evitó dejar la página completamente en blanco.
+                </p>
+
+                <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 break-words">
+                  {message}
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.location.reload()
+                    }
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+                  >
+                    Recargar aplicación
+                  </button>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+
+/* =========================================================
    UTILIDADES DE ARCHIVOS
    ========================================================= */
 
@@ -1435,43 +1967,51 @@ const DashboardContinuidad = () => {
      ======================================================= */
 
   const dropouts =
-    analysisData?.lists?.lost ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists?.lost
+    );
 
   const currentLevel1List =
-    analysisData?.lists
-      ?.currentLevel1 ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.currentLevel1
+    );
 
   const notPresentL02List =
-    analysisData?.lists
-      ?.notPresentPreviousLevel2Plus ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.notPresentPreviousLevel2Plus
+    );
 
   const freqChangersList =
-    analysisData?.lists
-      ?.frequencyChanges ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.frequencyChanges
+    );
 
   const graduadosList =
-    analysisData?.lists
-      ?.graduates ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.graduates
+    );
 
   const transNinosJovenesList =
-    analysisData?.lists
-      ?.ninosJovenes ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.ninosJovenes
+    );
 
   const transNinosAdultosList =
-    analysisData?.lists
-      ?.ninosAdultos ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.ninosAdultos
+    );
 
   const transJovenesAdultosList =
-    analysisData?.lists
-      ?.jovenesAdultos ??
-    EMPTY_ARRAY;
+    asArray(
+      analysisData?.lists
+        ?.jovenesAdultos
+    );
 
 
   /* =======================================================
@@ -1479,217 +2019,15 @@ const DashboardContinuidad = () => {
      ======================================================= */
 
   const stats =
-    useMemo(() => {
-      if (
-        !analysisData
-      ) {
-        return createEmptyStats();
-      }
-
-      const topVolume =
-        analysisData
-          .analytics
-          ?.topScheduleByVolume ||
-        {};
-
-      const topRate =
-        analysisData
-          .analytics
-          ?.topScheduleByRate ||
-        {};
-
-      return {
-        oldTotal:
+    useMemo(
+      () =>
+        buildSafeStats(
           analysisData
-            .totals
-            .previous,
-
-        newTotal:
-          analysisData
-            .totals
-            .current,
-
-        shouldContinue:
-          analysisData
-            .totals
-            .shouldContinue,
-
-        reenrolled:
-          analysisData
-            .totals
-            .reenrolled,
-
-        reenrolledPct:
-          analysisData
-            .rates
-            .retention,
-
-        lost:
-          analysisData
-            .totals
-            .lost,
-
-        lostPct:
-          analysisData
-            .rates
-            .attrition,
-
-        previousLevel1:
-          analysisData
-            .segmentation
-            .level1
-            .previous,
-
-        regularPrevious:
-          analysisData
-            .segmentation
-            .regularStudents
-            .previous,
-
-        level1Lost:
-          analysisData
-            .segmentation
-            .level1
-            .lost,
-
-        level1LostPct:
-          analysisData
-            .segmentation
-            .level1
-            .attritionRate,
-
-        regularLost:
-          analysisData
-            .segmentation
-            .regularStudents
-            .lost,
-
-        regularLostPct:
-          analysisData
-            .segmentation
-            .regularStudents
-            .attritionRate,
-
-        transNinosJovenes:
-          analysisData
-            .analytics
-            .categoryTransitions
-            ?.ninosJovenes ||
-          0,
-
-        transNinosAdultos:
-          analysisData
-            .analytics
-            .categoryTransitions
-            ?.ninosAdultos ||
-          0,
-
-        transJovenesAdultos:
-          analysisData
-            .analytics
-            .categoryTransitions
-            ?.jovenesAdultos ||
-          0,
-
-        categoryTransitionsAvailable:
-          Boolean(
-            analysisData
-              .analytics
-              .categoryTransitionsAvailable
-          ),
-
-        avgDensity:
-          analysisData
-            .analytics
-            .density
-            .average,
-
-        activeSections:
-          analysisData
-            .analytics
-            .density
-            .sections,
-
-        topHorarioFugas:
-          topVolume.schedule ||
-          "N/A",
-
-        topHorarioFugasCount:
-          topVolume.lost ||
-          0,
-
-        topHorarioFugasPrevious:
-          topVolume.previous ??
-          topVolume.eligible ??
-          0,
-
-        topHorarioFugasRate:
-          topVolume.rate ||
-          0,
-
-        topHorarioRate:
-          topRate.schedule ||
-          "N/A",
-
-        topHorarioRatePct:
-          topRate.rate ||
-          0,
-
-        topHorarioRateLost:
-          topRate.lost ||
-          0,
-
-        topHorarioRatePrevious:
-          topRate.previous ??
-          topRate.eligible ??
-          0,
-
-        graduados:
-          analysisData
-            .totals
-            .graduates,
-
-        terminalPrevious:
-          analysisData
-            .totals
-            .terminalPrevious,
-
-        terminalReappeared:
-          analysisData
-            .totals
-            .terminalReappeared,
-
-        currentLevel1:
-          analysisData
-            .totals
-            .currentLevel1,
-
-        notPresentPrevious:
-          analysisData
-            .totals
-            .notPresentPrevious,
-
-        notPresentPreviousL02Plus:
-          analysisData
-            .totals
-            .notPresentPreviousLevel2Plus,
-
-        cambiosFreq:
-          analysisData
-            .totals
-            .frequencyChanges,
-
-        reconciliationOk:
-          Boolean(
-            analysisData
-              .quality
-              ?.reconciliation
-              ?.ok
-          ),
-      };
-    }, [
-      analysisData,
-    ]);
+        ),
+      [
+        analysisData,
+      ]
+    );
 
 
   /* =======================================================
@@ -3291,11 +3629,10 @@ const DashboardContinuidad = () => {
 
 
   const getDropoutLevelRows = () =>
-    (
+    asArray(
       analysisData
         ?.analytics
-        ?.dropoutByLevel ||
-      []
+        ?.dropoutByLevel
     ).map(
       (row) => [
         row.level,
@@ -3305,11 +3642,10 @@ const DashboardContinuidad = () => {
 
 
   const getDropoutScheduleRows = () =>
-    (
+    asArray(
       analysisData
         ?.analytics
-        ?.dropoutBySchedule ||
-      []
+        ?.dropoutBySchedule
     ).map(
       (row) => [
         row.schedule,
@@ -3328,11 +3664,10 @@ const DashboardContinuidad = () => {
 
 
   const getDropoutFrequencyRows = () =>
-    (
+    asArray(
       analysisData
         ?.analytics
-        ?.dropoutByFrequency ||
-      []
+        ?.dropoutByFrequency
     ).map(
       (row) => [
         row.frequency,
@@ -3350,9 +3685,10 @@ const DashboardContinuidad = () => {
 
   const getQualityRows = () => {
     const warnings =
-      qualityData
-        ?.warnings ||
-      [];
+      asArray(
+        qualityData
+          ?.warnings
+      );
 
     if (
       !warnings.length
@@ -5244,6 +5580,51 @@ const DashboardContinuidad = () => {
   }
 
 
+  if (
+    !analysisData
+  ) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
+
+        <div className="max-w-2xl mx-auto mt-8 bg-white border border-amber-200 rounded-2xl shadow-sm p-6">
+
+          <div className="flex items-start gap-3">
+
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+
+            <div>
+
+              <h2 className="font-bold text-amber-800">
+                No hay resultados disponibles
+              </h2>
+
+              <p className="text-sm text-slate-600 mt-1">
+                Vuelve a la carga de PDFs y procesa los dos períodos nuevamente.
+              </p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveTab(
+                    "upload"
+                  )
+                }
+                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+              >
+                Volver a PDFs
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
+
   /* =======================================================
      DASHBOARD
      ======================================================= */
@@ -5552,9 +5933,10 @@ const DashboardContinuidad = () => {
           ADVERTENCIAS
           =================================================== */}
 
-      {qualityData
-        ?.warnings
-        ?.length >
+      {asArray(
+        qualityData
+          ?.warnings
+      ).length >
         0 && (
 
         <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
@@ -5571,7 +5953,9 @@ const DashboardContinuidad = () => {
 
             <ul className="list-disc pl-5 space-y-1">
 
-              {qualityData.warnings.map(
+              {asArray(
+                qualityData?.warnings
+              ).map(
                 (
                   warning,
                   index
@@ -7499,4 +7883,11 @@ const DashboardContinuidad = () => {
 };
 
 
-export default DashboardContinuidad;
+const App = () => (
+  <DashboardErrorBoundary>
+    <DashboardContinuidad />
+  </DashboardErrorBoundary>
+);
+
+
+export default App;
