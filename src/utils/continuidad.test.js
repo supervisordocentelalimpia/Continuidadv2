@@ -655,7 +655,7 @@ describe(
     );
 
     it(
-      "no inventa una regla terminal para Niños",
+      "Niños L18 es graduando",
       () => {
         const student =
           createStudent({
@@ -676,12 +676,12 @@ describe(
           isGraduated(
             student
           )
-        ).toBe(false);
+        ).toBe(true);
       }
     );
 
     it(
-      "no inventa una regla terminal para Jóvenes",
+      "Jóvenes L18 es graduando",
       () => {
         const student =
           createStudent({
@@ -702,7 +702,85 @@ describe(
           isGraduated(
             student
           )
+        ).toBe(true);
+      }
+    );
+
+    it(
+      "Niños y Jóvenes L17 todavía deben continuar",
+      () => {
+        expect(
+          isGraduated(
+            createStudent({ id: "10000005", name: "NIÑO L17", level: "L17", category: "Niños" })
+          )
         ).toBe(false);
+
+        expect(
+          isGraduated(
+            createStudent({ id: "10000006", name: "JOVEN L17", level: "L17", category: "Jóvenes" })
+          )
+        ).toBe(false);
+      }
+    );
+
+    it(
+      "excluye los niveles terminales de la pérdida de continuidad",
+      () => {
+        const analysis = analyzeContinuity({
+          oldStudents: [
+            createStudent({ id: "G-K18", name: "EGRESADO NIÑOS", level: "L18", category: "Niños" }),
+            createStudent({ id: "G-T18", name: "EGRESADO JÓVENES", level: "L18", category: "Jóvenes" }),
+            createStudent({ id: "G-A20", name: "EGRESADO ADULTOS", level: "L20", category: "Adultos" }),
+          ],
+          newStudents: [],
+          strict: true,
+        });
+
+        expect(analysis.totals.graduates).toBe(3);
+        expect(analysis.totals.eligible).toBe(0);
+        expect(analysis.totals.lost).toBe(0);
+        expect(analysis.lists.graduates).toHaveLength(3);
+      }
+    );
+  }
+);
+
+/* =========================================================
+   TRANSICIONES ENTRE CATEGORÍAS
+   ========================================================= */
+
+describe(
+  "Transiciones entre categorías",
+  () => {
+    it(
+      "detecta Niños → Adultos sin confundirlo con una fuga",
+      () => {
+        const oldStudent = createStudent({
+          id: "TRANS-001",
+          name: "TRANSICION DIRECTA",
+          level: "L10",
+          category: "Niños",
+          frequency: "SABATINO",
+          frequencyBase: "SABATINO",
+        });
+
+        const newStudent = createStudent({
+          id: "TRANS-001",
+          name: "TRANSICION DIRECTA",
+          level: "L01",
+          category: "Adultos",
+          frequency: "SABATINO",
+          frequencyBase: "SABATINO",
+        });
+
+        const analysis = analyzeContinuity({
+          oldStudents: [oldStudent],
+          newStudents: [newStudent],
+          strict: true,
+        });
+
+        expect(analysis.totals.lost).toBe(0);
+        expect(analysis.lists.ninosAdultos).toHaveLength(1);
       }
     );
   }
