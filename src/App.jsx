@@ -93,11 +93,12 @@ import {
 } from "./utils/reportData";
 
 import {
+  buildFrequencyReportHtml,
   getFrequencyReportFilename,
 } from "./utils/reportGenerator";
 
 import {
-  buildFrequencyReportPdfDefinition,
+  buildExactFrequencyReportPdfDefinition,
 } from "./utils/reportPdf";
 
 
@@ -5468,22 +5469,39 @@ const DashboardContinuidad = () => {
     report,
     plans = []
   ) => {
-    const definition =
-      buildFrequencyReportPdfDefinition(
-        report,
-        plans
-      );
+    try {
+      const definition =
+        await buildExactFrequencyReportPdfDefinition(
+          report,
+          plans
+        );
 
-    pdfMake
-      .createPdf(
-        definition
-      )
-      .download(
-        getFrequencyReportFilename(
-          report.frequency,
-          "pdf"
+      pdfMake
+        .createPdf(
+          definition
         )
+        .download(
+          getFrequencyReportFilename(
+            report.frequency,
+            "pdf"
+          )
+        );
+    } catch (error) {
+      /*
+        Fallback visual: si el navegador no permite rasterizar el HTML,
+        se abre exactamente el mismo reporte y se lanza la impresión.
+        Guardar como PDF conserva el diseño HTML.
+      */
+      const html = buildFrequencyReportHtml(report, plans).replace(
+        "</body>",
+        `<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));<\/script></body>`
       );
+      const reportWindow = window.open("", "_blank");
+      if (!reportWindow) throw error;
+      reportWindow.document.open();
+      reportWindow.document.write(html);
+      reportWindow.document.close();
+    }
   };
 
 
@@ -6981,6 +6999,13 @@ const DashboardContinuidad = () => {
 
                 resetFilters();
 
+                window.setTimeout(() => {
+                  document.getElementById("student-list-section")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }, 0);
+
               }}
               className="text-left bg-sky-50 rounded-lg px-3 py-3 hover:ring-2 ring-sky-300"
             >
@@ -7329,7 +7354,7 @@ const DashboardContinuidad = () => {
           TABLA
           =================================================== */}
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+      <div id="student-list-section" className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden scroll-mt-6">
 
 
         <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row gap-4 justify-between">
