@@ -897,6 +897,12 @@ const createEmptyMeta = () => ({
   scheduleDurationMinutes:
     null,
 
+  teacherRaw:
+    "",
+
+  teacher:
+    "",
+
   salonRaw:
     "",
 
@@ -1092,6 +1098,26 @@ const extractMetaFromLine = (
 
     meta.scheduleDurationMinutes =
       schedule.durationMinutes;
+
+    return;
+  }
+
+
+  /* -------------------------------------------------------
+     PROFESOR
+     ------------------------------------------------------- */
+
+  const teacherMatch =
+    original.match(
+      /^(?:PROFESOR|PROFESORA|TEACHER)\s*:\s*(.*)$/i
+    );
+
+  if (teacherMatch) {
+    meta.teacherRaw =
+      String(teacherMatch[1] || "").trim();
+
+    meta.teacher =
+      meta.teacherRaw || "STAFF";
 
     return;
   }
@@ -1677,7 +1703,8 @@ const extractEmailAndName = (
 const parseStudentLine = (
   line,
   meta,
-  fileName
+  fileName,
+  sourcePage = null
 ) => {
   const original =
     String(
@@ -1948,6 +1975,10 @@ const parseStudentLine = (
        CURSO
        ----------------------------------------------------- */
 
+    teacher:
+      meta.teacher ||
+      "",
+
     salon:
       meta.salon ||
       "",
@@ -1968,6 +1999,11 @@ const parseStudentLine = (
     sourceFile:
       fileName ||
       "",
+
+    sourcePage:
+      Number.isFinite(Number(sourcePage))
+        ? Number(sourcePage)
+        : null,
   };
 };
 
@@ -2141,12 +2177,24 @@ export async function parseCevazPdf(
 
   const students = [];
 
+  let currentPageNumber = null;
+
 
   for (
     const line
     of lines
   ) {
     if (!line) {
+      continue;
+    }
+
+    const pageMarker =
+      line.match(/^\[\[CEVAZ_PAGE:(\d+)\]\]$/);
+
+    if (pageMarker) {
+      currentPageNumber =
+        Number(pageMarker[1]);
+
       continue;
     }
 
@@ -2179,7 +2227,8 @@ export async function parseCevazPdf(
       parseStudentLine(
         line,
         meta,
-        file.name
+        file.name,
+        currentPageNumber
       );
 
 
