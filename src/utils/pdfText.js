@@ -702,6 +702,13 @@ export async function extractTextFromPdf(
           parseCevazPdf.js utiliza los encabezados
           de cada página para reiniciar metadatos.
         */
+        /*
+          Marcador interno de página para que el parser pueda
+          informar exactamente dónde encontró una incidencia de
+          calidad. No se muestra al usuario final.
+        */
+        allLines.push(`[[CEVAZ_PAGE:${pageNum}]]`);
+
         for (
           const line
           of result.lines
