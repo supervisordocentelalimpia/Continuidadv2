@@ -45,6 +45,26 @@ const sourceFrequency = (student) =>
 const uniqueSorted = (items = []) =>
   Array.from(new Set(items.filter(Boolean)));
 
+const inferEndDateFromPeriods = (periods = []) => {
+  for (const rawValue of periods) {
+    const raw = String(rawValue || "").toUpperCase();
+    const yearMatch = raw.match(/\b(20\d{2})\b/);
+    const year = yearMatch ? Number(yearMatch[1]) : null;
+    const matches = Array.from(raw.matchAll(/\b(\d{1,2})[\/\-_](\d{1,2})(?:[\/\-_](\d{2,4}))?\b/g));
+    if (!matches.length) continue;
+    const match = matches[matches.length - 1];
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    let resolvedYear = match[3] ? Number(match[3]) : year;
+    if (resolvedYear && resolvedYear < 100) resolvedYear += 2000;
+    if (!resolvedYear || month < 1 || month > 12 || day < 1 || day > 31) continue;
+    const mm = String(month).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    return `${resolvedYear}-${mm}-${dd}`;
+  }
+  return "";
+};
+
 const sectionKey = (student) =>
   student?.courseId ||
   [
@@ -199,6 +219,9 @@ export function buildFrequencyReportData(analysisData, frequency) {
     metadata: {
       previousPeriods,
       currentPeriods,
+      detectedEndDate: inferEndDateFromPeriods(currentPeriods),
+      registrationStart: "",
+      registrationEnd: inferEndDateFromPeriods(currentPeriods),
       generatedAt: new Date().toISOString(),
     },
     totals: {
