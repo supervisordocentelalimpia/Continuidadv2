@@ -26,8 +26,13 @@
    - Graduando = estudiante que estaba en L20
      en el período ANTERIOR.
 
+   NIÑOS Y JÓVENES:
+   - Graduando = estudiante que estaba en L18
+     en el período ANTERIOR.
+
    IMPORTANTE:
-   - L19 NO es graduando.
+   - Adultos L19 NO es graduando.
+   - Niños/Jóvenes L17 NO es graduando.
    - Nivel 1 = nuevo ingreso.
    - Un estudiante no presente en el período anterior
      y ubicado en L02+ se identifica como ingreso externo
@@ -41,7 +46,7 @@
    VERSIÓN DE REGLAS
    ========================================================= */
 
-export const CONTINUIDAD_RULES_VERSION = "2026-08-20-v1";
+export const CONTINUIDAD_RULES_VERSION = "2026-10-01-v2";
 
 
 /* =========================================================
@@ -49,14 +54,20 @@ export const CONTINUIDAD_RULES_VERSION = "2026-08-20-v1";
    ========================================================= */
 
 /*
-  Solo incluimos reglas institucionales confirmadas.
+  Reglas institucionales confirmadas:
 
-  No se deben inventar niveles terminales para Niños
-  o Jóvenes sin validación institucional.
+  - Adultos egresa en Level 20.
+  - Niños egresa en Level 18.
+  - Jóvenes egresa en Level 18.
+
+  Estos estudiantes se reportan como graduandos y se
+  excluyen de la base de continuidad/deserción.
 */
 
 export const DEFAULT_GRADUATION_RULES = Object.freeze({
   Adultos: 20,
+  Niños: 18,
+  Jóvenes: 18,
 });
 
 
@@ -603,9 +614,8 @@ export function isGraduated(
   /*
     IGUALDAD ESTRICTA.
 
-    Adultos:
-    L20 = graduando.
-    L19 = NO graduando.
+    Adultos: L20 = graduando; L19 = NO graduando.
+    Niños/Jóvenes: L18 = graduando; L17 = NO graduando.
   */
 
   return (
@@ -1251,15 +1261,17 @@ export function detectFrequencyChanges(
    ========================================================= */
 
 export function detectCategoryTransitions(
-  reenrolledPairs = []
+  matchedPairs = []
 ) {
   const ninosJovenes = [];
+
+  const ninosAdultos = [];
 
   const jovenesAdultos = [];
 
   for (
     const pair
-    of reenrolledPairs
+    of matchedPairs
   ) {
     const oldS =
       prepareStudent(
@@ -1271,21 +1283,33 @@ export function detectCategoryTransitions(
         pair.newS
       );
 
+    const transitionRecord = {
+      ...newS,
+      oldCategory: oldS.category,
+      newCategory: newS.category,
+      previousStudent: oldS,
+    };
+
     if (
       oldS.category ===
         "Niños" &&
       newS.category ===
         "Jóvenes"
     ) {
-      ninosJovenes.push({
-        ...newS,
+      ninosJovenes.push(
+        transitionRecord
+      );
+    }
 
-        oldCategory:
-          oldS.category,
-
-        previousStudent:
-          oldS,
-      });
+    if (
+      oldS.category ===
+        "Niños" &&
+      newS.category ===
+        "Adultos"
+    ) {
+      ninosAdultos.push(
+        transitionRecord
+      );
     }
 
     if (
@@ -1294,25 +1318,22 @@ export function detectCategoryTransitions(
       newS.category ===
         "Adultos"
     ) {
-      jovenesAdultos.push({
-        ...newS,
-
-        oldCategory:
-          oldS.category,
-
-        previousStudent:
-          oldS,
-      });
+      jovenesAdultos.push(
+        transitionRecord
+      );
     }
   }
 
   return {
     ninosJovenes,
 
+    ninosAdultos,
+
     jovenesAdultos,
 
     total:
       ninosJovenes.length +
+      ninosAdultos.length +
       jovenesAdultos.length,
   };
 }
@@ -1733,9 +1754,26 @@ export function analyzeContinuity({
      13. TRANSICIONES DE CATEGORÍA
      ======================================================= */
 
+  /*
+    Para transiciones de categoría consideramos cualquier
+    estudiante presente en ambos períodos, incluso si en la
+    categoría anterior estaba en su nivel terminal.
+
+    Esto permite registrar, por ejemplo, Jóvenes L18 → Adultos
+    como transición académica sin convertir al egresado en una
+    pérdida de continuidad.
+  */
+
+  const allMatchedPairs = oldUnique
+    .map((oldS) => ({
+      oldS,
+      newS: newById.get(oldS.idNorm),
+    }))
+    .filter((pair) => Boolean(pair.newS));
+
   const categoryTransitions =
     detectCategoryTransitions(
-      reenrolledPairs
+      allMatchedPairs
     );
 
   const categoriesInDataset =
@@ -2012,6 +2050,10 @@ export function analyzeContinuity({
         categoryTransitions
           .ninosJovenes,
 
+      ninosAdultos:
+        categoryTransitions
+          .ninosAdultos,
+
       jovenesAdultos:
         categoryTransitions
           .jovenesAdultos,
@@ -2033,6 +2075,20 @@ export function analyzeContinuity({
       density,
 
       categoryTransitionsAvailable,
+
+      categoryTransitions: {
+        ninosJovenes:
+          categoryTransitions.ninosJovenes.length,
+
+        ninosAdultos:
+          categoryTransitions.ninosAdultos.length,
+
+        jovenesAdultos:
+          categoryTransitions.jovenesAdultos.length,
+
+        total:
+          categoryTransitions.total,
+      },
 
       categoryTransitionsTotal:
         categoryTransitions.total,
