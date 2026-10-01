@@ -1,3 +1,5 @@
+import { buildFrequencyReportHtml } from "./reportGenerator.js";
+
 import {
   LOGO_LA_LIMPIA_DATA_URL,
   PATTERN_BLUE_DATA_URL,
@@ -296,4 +298,152 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
       author: "CEVAZ La Limpia",
     },
   };
+}
+
+
+const waitForFrameLoad = (iframe) => new Promise((resolve, reject) => {
+  const timeout = window.setTimeout(() => reject(new Error("El reporte tardó demasiado en renderizarse.")), 10000);
+  iframe.onload = () => {
+    window.clearTimeout(timeout);
+    resolve();
+  };
+});
+
+const waitForDocumentImages = async (doc) => {
+  const images = Array.from(doc.images || []);
+  await Promise.all(images.map((image) => {
+    if (image.complete) return Promise.resolve();
+    return new Promise((resolve) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", resolve, { once: true });
+    });
+  }));
+};
+
+const renderHtmlPageToPng = async (pageElement, styleText, scale = 1.5) => {
+  const cssPxPerMm = 96 / 25.4;
+  const width = Math.round(210 * cssPxPerMm);
+  const height = Math.round(297 * cssPxPerMm);
+  const clone = pageElement.cloneNode(true);
+  clone.style.margin = "0";
+  clone.style.boxShadow = "none";
+  clone.style.width = "210mm";
+  clone.style.height = "297mm";
+  clone.style.minHeight = "297mm";
+  clone.style.overflow = "hidden";
+
+  const xhtml = `
+    <div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;margin:0;padding:0;overflow:hidden;background:#fff;">
+      <style>
+        html,body{margin:0!important;padding:0!important;background:#fff!important;width:100%!important;height:100%!important;}
+        ${styleText}
+        .report-page{margin:0!important;box-shadow:none!important;width:210mm!important;height:297mm!important;min-height:297mm!important;overflow:hidden!important;}
+      </style>
+      ${clone.outerHTML}
+    </div>`;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject x="0" y="0" width="${width}" height="${height}">${xhtml}</foreignObject></svg>`;
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("No se pudo rasterizar una página del reporte."));
+      image.src = url;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) throw new Error("No se pudo crear el lienzo para el PDF.");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/png", 1);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
+
+/**
+ * Genera un PDF visualmente idéntico al HTML del reporte.
+ * Se renderiza el mismo HTML en un iframe oculto y cada página A4 se captura
+ * como imagen de alta resolución para pdfMake. No existe un segundo diseño.
+ */
+export async function buildExactFrequencyReportPdfDefinition(report, actionPlans = []) {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return buildFrequencyReportPdfDefinition(report, actionPlans);
+  }
+
+  const html = buildFrequencyReportHtml(report, actionPlans);
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.left = "-20000px";
+  iframe.style.top = "0";
+  iframe.style.width = "794px";
+  iframe.style.height = "1123px";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.style.pointerEvents = "none";
+
+  document.body.appendChild(iframe);
+
+  try {
+    const loaded = waitForFrameLoad(iframe);
+    iframe.srcdoc = html;
+    await loaded;
+
+    const doc = iframe.contentDocument;
+    if (!doc) throw new Error("No se pudo preparar el HTML para el PDF.");
+
+    await waitForDocumentImages(doc);
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const chartRoot = doc.getElementById("dropoutChart");
+      if (!chartRoot || chartRoot.querySelector("svg")) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+
+    const pages = Array.from(doc.querySelectorAll(".report-page"));
+    if (!pages.length) throw new Error("No se encontraron páginas para exportar.");
+
+    const styleText = Array.from(doc.querySelectorAll("style"))
+      .map((style) => style.textContent || "")
+      .join("\n");
+
+    const images = [];
+    for (const page of pages) {
+      images.push(await renderHtmlPageToPng(page, styleText));
+    }
+
+    const a4Width = 595.28;
+    const a4Height = 841.89;
+
+    return {
+      pageSize: "A4",
+      pageOrientation: "portrait",
+      pageMargins: [0, 0, 0, 0],
+      content: images.map((image, index) => ({
+        image,
+        width: a4Width,
+        height: a4Height,
+        margin: [0, 0, 0, 0],
+        pageBreak: index < images.length - 1 ? "after" : undefined,
+      })),
+      info: {
+        title: `Interim Status Report - ${report.frequency}`,
+        subject: "Continuidad estudiantil",
+        author: "Supervisión Docente",
+      },
+    };
+  } finally {
+    iframe.remove();
+  }
 }

@@ -44,6 +44,77 @@ const normalizeFilename = (value = "") =>
     .replace(/^_+|_+$/g, "")
     .toUpperCase();
 
+const richTextToHtml = (value = "") => {
+  const source = String(value || "");
+  if (!source) return "";
+
+  if (typeof DOMParser === "undefined") {
+    return escapeHtml(source.replace(/<[^>]+>/g, " ")).replace(/\n/g, "<br>");
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div id="rich-root">${source}</div>`, "text/html");
+  const root = doc.getElementById("rich-root");
+  if (!root) return escapeHtml(source);
+
+  const allowed = new Set(["B", "STRONG", "I", "EM", "U", "UL", "OL", "LI", "BR", "DIV", "P", "SPAN"]);
+  const elements = Array.from(root.querySelectorAll("*"));
+
+  elements.forEach((element) => {
+    if (!allowed.has(element.tagName)) {
+      element.replaceWith(...Array.from(element.childNodes));
+      return;
+    }
+
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      if (element.tagName === "SPAN" && name === "style") {
+        const style = element.getAttribute("style") || "";
+        const highlight = style.match(/background(?:-color)?\s*:\s*([^;]+)/i);
+        if (highlight) {
+          element.setAttribute("style", `background-color:${highlight[1].trim()}`);
+        } else {
+          element.removeAttribute(attribute.name);
+        }
+      } else {
+        element.removeAttribute(attribute.name);
+      }
+    });
+  });
+
+  return root.innerHTML;
+};
+
+const MONTHS_ES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+
+const parseIsoDate = (value = "") => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+};
+
+const formatRegistrationMeta = (metadata = {}) => {
+  const start = parseIsoDate(metadata.registrationStart);
+  const end = parseIsoDate(metadata.registrationEnd || metadata.detectedEndDate);
+  const fallbackYear = String((metadata.currentPeriods || []).join(" ")).match(/\b(20\d{2})\b/)?.[1];
+  const year = end?.year || start?.year || Number(fallbackYear) || new Date().getFullYear();
+
+  let rangeLabel = "";
+  if (start && end) {
+    rangeLabel = start.year === end.year
+      ? `${String(start.day).padStart(2, "0")} ${MONTHS_ES[start.month - 1]} – ${String(end.day).padStart(2, "0")} ${MONTHS_ES[end.month - 1]} ${end.year}`
+      : `${String(start.day).padStart(2, "0")} ${MONTHS_ES[start.month - 1]} ${start.year} – ${String(end.day).padStart(2, "0")} ${MONTHS_ES[end.month - 1]} ${end.year}`;
+  } else if (end) {
+    rangeLabel = `FIN ${String(end.day).padStart(2, "0")} ${MONTHS_ES[end.month - 1]} ${end.year}`;
+  }
+
+  return { rangeLabel, year };
+};
+
 const studentRow = (student, extraCells = "") => `
   <tr>
     <td>${escapeHtml(student?.name || "N/A")}</td>
@@ -111,23 +182,24 @@ const actionPlanRows = (plans = []) => {
   }
 
   return `
-    <div class="table-wrap">
-      <table class="report-table">
-        <thead><tr><th>Fecha</th><th>Hallazgo</th><th>Acción</th><th>Responsable</th><th>Seguimiento</th><th>Estado</th></tr></thead>
-        <tbody>
-          ${plans.map((plan) => `
-            <tr>
-              <td>${escapeHtml(plan.date || "")}</td>
-              <td>${escapeHtml(plan.finding || "")}</td>
-              <td>${escapeHtml(plan.action || "")}</td>
-              <td>${escapeHtml(plan.owner || "")}</td>
-              <td>${escapeHtml(plan.followUpDate || "")}</td>
-              <td>${escapeHtml(plan.status || "Pendiente")}</td>
-            </tr>`).join("")}
-        </tbody>
-      </table>
-    </div>
-    <div class="action-editor small" contenteditable="true" data-placeholder="Notas adicionales..."></div>`;
+    <div class="action-plan-list">
+      ${plans.map((plan, index) => `
+        <article class="action-plan-card">
+          <div class="action-plan-head">
+            <div><span class="action-plan-number">${index + 1}</span><strong>${escapeHtml(plan.status || "Pendiente")}</strong></div>
+            <div class="action-plan-meta">
+              ${plan.date ? `<span>${escapeHtml(plan.date)}</span>` : ""}
+              ${plan.owner ? `<span>${escapeHtml(plan.owner)}</span>` : ""}
+              ${plan.followUpDate ? `<span>Seguimiento: ${escapeHtml(plan.followUpDate)}</span>` : ""}
+            </div>
+          </div>
+          <div class="action-rich-grid">
+            <section><h4>Hallazgo / prioridad</h4><div class="rich-content">${richTextToHtml(plan.finding || "") || "—"}</div></section>
+            <section><h4>Acción</h4><div class="rich-content">${richTextToHtml(plan.action || "") || "—"}</div></section>
+          </div>
+          ${plan.notes ? `<section class="action-notes"><h4>Notas</h4><div class="rich-content">${richTextToHtml(plan.notes)}</div></section>` : ""}
+        </article>`).join("")}
+    </div>`;
 };
 
 export const getFrequencyReportFilename = (frequency, extension = "html") =>
@@ -143,6 +215,7 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
   const chartData = report.analytics?.dropoutByCategoryLevel || [];
   const sections = report.analytics?.sectionRows || [];
   const reportActions = (actionPlans || []).filter((plan) => !plan.frequency || plan.frequency === report.frequency);
+  const coverMeta = formatRegistrationMeta(report.metadata || {});
 
   let pageNumber = 0;
   const pages = [];
@@ -177,7 +250,11 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
         <div><span>PERÍODO ACTUAL</span><strong>${escapeHtml(currentPeriod)}</strong></div>
       </div>
     </div>
-    <div class="cover-footer"></div>
+    <div class="cover-footer">
+      <span class="cover-footer-left">SUPERVISIÓN DOCENTE</span>
+      <span class="cover-footer-range">${escapeHtml(coverMeta.rangeLabel || "")}</span>
+      <span class="cover-footer-year">${escapeHtml(coverMeta.year)}</span>
+    </div>
   `, { cover: true });
 
   page("RESUMEN GENERAL", `
@@ -205,7 +282,7 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
         <div class="summary-panel">
           <h3>Movimiento de frecuencia</h3>
           <div class="big-number">${report.totals.frequencyChanges}</div>
-          <p>Estudiantes que continuaron, pero cambiaron de familia de frecuencia entre ambos períodos.</p>
+          <p>Estudiantes que continuaron, pero cambiaron de frecuencia entre ambos períodos.</p>
         </div>
       </div>
       <div class="source-note">Fuente operativa: listas SGA suministradas · Comparación: ${escapeHtml(previousPeriod)} → ${escapeHtml(currentPeriod)}</div>
@@ -248,7 +325,7 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
         ${kpiCard("Niños → Jóvenes", report.transitions.ninosJovenes, "Transiciones detectadas entre categorías.", "green")}
         ${kpiCard("Niños → Adultos", report.transitions.ninosAdultos, "Transiciones directas detectadas.", "sky")}
         ${kpiCard("Jóvenes → Adultos", report.transitions.jovenesAdultos, "Transiciones detectadas entre categorías.", "blue")}
-        ${kpiCard("Cambios de frecuencia", report.totals.frequencyChanges, "Continuidad con cambio de familia de frecuencia.", "amber")}
+        ${kpiCard("Cambios de frecuencia", report.totals.frequencyChanges, "Continuidad con cambio de frecuencia.", "amber")}
       </div>
       ${studentTable("Ingresos Level 01", report.lists.newLevel1)}
       ${studentTable("Estudiantes no presentes en el período anterior · Level 02+", report.lists.externalLevel2Plus)}
@@ -320,15 +397,15 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
   .page-header{position:relative;z-index:3;height:21mm;padding:5mm 12mm;background:linear-gradient(180deg,var(--blue-dark),var(--blue-dark));display:flex;align-items:center;justify-content:space-between;color:white}
   .header-kicker{font-size:8pt;letter-spacing:.18em;font-weight:700;opacity:.82}.header-title{font-size:15pt;font-weight:900;margin-top:1mm}.header-frequency{padding:2mm 4mm;border-radius:999px;background:var(--accent);font-size:8.5pt;font-weight:800;letter-spacing:.06em}
   .page-body{position:relative;z-index:2;padding:10mm 12mm 17mm}.page-footer{position:absolute;z-index:4;left:0;right:0;bottom:0;height:10mm;background:linear-gradient(180deg,var(--red-dark),var(--red));display:flex;justify-content:flex-end;align-items:center;padding:0 12mm;color:#fff;font-size:9pt;font-weight:800}.page-footer span{min-width:10mm;text-align:right}
-  .cover-page{background:linear-gradient(180deg,#155EA8 0%,#0D52A0 100%);color:#fff}.cover-pattern{position:absolute;inset:0 0 17mm;background-image:url('${PATTERN_BLUE_DATA_URL}');background-size:cover;background-position:center;opacity:.97}.cover-logo-wrap{position:absolute;top:22mm;left:14mm;width:35mm;height:35mm;display:flex;align-items:center;justify-content:center}.cover-logo{width:100%;height:100%;object-fit:contain}.cover-content{position:absolute;left:16mm;right:14mm;bottom:51mm;z-index:2}.cover-rule{width:25mm;height:2mm;margin-bottom:8mm;border-radius:999px}.cover-overline{font-size:30pt;font-weight:900;line-height:.95;letter-spacing:-.03em}.cover-report{font-size:42pt;font-weight:950;color:#fff;margin-top:2mm;line-height:.95}.cover-meta-grid{display:grid;grid-template-columns:1fr 2fr;gap:10mm;margin-top:10mm;padding-top:7mm;border-top:1px solid rgba(255,255,255,.5)}.cover-meta-grid span{display:block;font-size:7pt;letter-spacing:.22em;opacity:.75}.cover-meta-grid strong{display:block;margin-top:2mm;font-size:12pt;line-height:1.2}.cover-footer{position:absolute;left:0;right:0;bottom:0;height:17mm;background:linear-gradient(180deg,#F4EFEB,#FCF8F5)}
+  .cover-page{background:linear-gradient(180deg,#155EA8 0%,#0D52A0 100%);color:#fff}.cover-pattern{position:absolute;inset:0 0 17mm;background-image:url('${PATTERN_BLUE_DATA_URL}');background-size:cover;background-position:center;opacity:.97}.cover-logo-wrap{position:absolute;top:22mm;left:14mm;width:35mm;height:35mm;display:flex;align-items:center;justify-content:center}.cover-logo{width:100%;height:100%;object-fit:contain}.cover-content{position:absolute;left:16mm;right:14mm;bottom:51mm;z-index:2}.cover-rule{width:25mm;height:2mm;margin-bottom:8mm;border-radius:999px}.cover-overline{font-size:30pt;font-weight:900;line-height:.95;letter-spacing:-.03em}.cover-report{font-size:42pt;font-weight:950;color:#fff;margin-top:2mm;line-height:.95}.cover-meta-grid{display:grid;grid-template-columns:1fr 2fr;gap:10mm;margin-top:10mm;padding-top:7mm;border-top:1px solid rgba(255,255,255,.5)}.cover-meta-grid span{display:block;font-size:7pt;letter-spacing:.22em;opacity:.75}.cover-meta-grid strong{display:block;margin-top:2mm;font-size:12pt;line-height:1.2}.cover-footer{position:absolute;left:0;right:0;bottom:0;height:17mm;background:linear-gradient(180deg,#F4EFEB,#FCF8F5);display:grid;grid-template-columns:1fr 1.6fr .45fr;align-items:center;padding:0 14mm;color:var(--blue-dark);font-weight:900;letter-spacing:.05em}.cover-footer-left{font-size:7.5pt}.cover-footer-range{text-align:center;font-size:8pt}.cover-footer-year{text-align:right;font-size:9pt}
   .intro-note{background:rgba(255,255,255,.91);border-left:4px solid var(--blue-dark);border-radius:10px;padding:5mm 6mm;line-height:1.55;font-size:9.6pt;box-shadow:0 3px 12px rgba(15,23,42,.05)}.compact-note{margin-bottom:7mm}
   .kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm;margin-top:6mm}.kpi-card{background:rgba(255,255,255,.95);border-radius:12px;padding:5mm;border:1px solid rgba(9,69,138,.08);border-top:4px solid #2563eb;min-height:31mm}.kpi-label{font-size:8pt;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:#52657a}.kpi-value{font-size:26pt;font-weight:950;line-height:1;margin:2mm 0}.kpi-detail{font-size:8.3pt;line-height:1.35;color:#607087}.tone-green{border-top-color:#16a34a}.tone-green .kpi-value{color:#15803d}.tone-red{border-top-color:#e61c29}.tone-red .kpi-value{color:#b41620}.tone-amber{border-top-color:#f59e0b}.tone-amber .kpi-value{color:#b45309}.tone-blue{border-top-color:#2563eb}.tone-blue .kpi-value{color:#1d4ed8}.tone-sky{border-top-color:#38bdf8}.tone-sky .kpi-value{color:#0369a1}.tone-indigo{border-top-color:#6366f1}.tone-indigo .kpi-value{color:#4338ca}
   .two-col-summary{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:5mm}.summary-panel{background:rgba(255,255,255,.94);border-radius:12px;padding:5mm}.summary-panel h3{font-size:10pt;margin:0 0 3mm}.metric-line{display:flex;justify-content:space-between;padding:2mm 0;border-bottom:1px solid #edf2f7;font-size:8.6pt}.metric-line strong{font-size:11pt}.big-number{font-size:28pt;font-weight:950;color:var(--blue-dark)}.summary-panel p{font-size:8.5pt;line-height:1.4;color:#607087}.source-note{margin-top:5mm;font-size:7.5pt;color:#6b7280}
   .chart-card{background:rgba(255,255,255,.96);border-radius:14px;padding:6mm;min-height:180mm}.chart-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:5mm}.chart-card h3{margin:0;font-size:14pt}.chart-card p{margin:1.5mm 0 0;font-size:8.4pt;line-height:1.35;color:#64748b;max-width:116mm}.chart-buttons{display:flex;flex-wrap:wrap;gap:1.5mm;justify-content:flex-end}.chart-buttons button{border:1px solid #dbe4ee;background:#fff;color:#52657a;font-weight:800;font-size:7pt;padding:2mm 3mm;border-radius:999px;cursor:pointer}.chart-buttons button.active{background:var(--blue-dark);border-color:var(--blue-dark);color:#fff}.chart-legend{display:flex;gap:5mm;margin:5mm 0 3mm;font-size:8pt;color:#52657a}.chart-legend span{display:flex;gap:1.5mm;align-items:center}.chart-legend i{width:3mm;height:3mm;border-radius:50%}.dropout-chart{height:116mm;width:100%}.dropout-chart svg{width:100%;height:100%;overflow:visible}.schedule-panel{margin-top:5mm;background:rgba(255,255,255,.95);border-radius:12px;padding:5mm;border-left:4px solid var(--accent)}.schedule-panel h3{margin:0 0 2mm;font-size:9pt;text-transform:uppercase;letter-spacing:.08em}.schedule-main{font-size:20pt;font-weight:950;color:var(--blue-dark)}.schedule-sub{font-size:8.5pt;color:#64748b;margin-top:1mm}
   .movement-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:3mm;margin-bottom:5mm}.movement-grid .kpi-card{min-height:27mm;padding:4mm}.movement-grid .kpi-value{font-size:20pt}.detail-block{background:rgba(255,255,255,.95);border-radius:12px;padding:4mm;margin-top:4mm}.section-heading-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5mm}.section-heading-row h3{margin:0;font-size:10pt}.count-chip{background:#e7eef7;color:var(--blue-dark);padding:1mm 2.5mm;border-radius:999px;font-size:7.5pt;font-weight:800}
   .table-wrap{width:100%;overflow:hidden;background:rgba(255,255,255,.96);border-radius:10px}.report-table{width:100%;border-collapse:collapse;font-size:7.4pt}.report-table th{background:#e9eff6;color:#27415c;text-transform:uppercase;letter-spacing:.04em;font-size:6.7pt;padding:2.2mm;text-align:left;border-bottom:1px solid #cbd8e6}.report-table td{padding:2.1mm;border-bottom:1px solid #edf1f5;vertical-align:top}.report-table.compact td{padding:1.8mm}.report-table tr:last-child td{border-bottom:0}.number-cell{text-align:center;font-weight:900}.empty-cell{text-align:center;color:#94a3b8;padding:8mm!important}.section-overview{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-bottom:5mm}.section-overview>div{background:rgba(255,255,255,.96);padding:5mm;border-radius:12px;display:flex;align-items:baseline;gap:3mm}.section-overview strong{font-size:26pt;color:var(--blue-dark)}.section-overview span{font-size:9pt;color:#607087}
-  .actions-page .action-editor{min-height:85mm;background:rgba(255,255,255,.96);border:1.5px dashed #9cb1c8;border-radius:12px;padding:6mm;outline:none;font-size:10pt;line-height:1.55}.actions-page .action-editor.small{min-height:35mm;margin-top:5mm}.action-editor:empty::before{content:attr(data-placeholder);color:#94a3b8}.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:5mm}.action-box{min-height:34mm;background:rgba(255,255,255,.96);border-radius:10px;padding:4mm;border:1px solid #e1e8f0;outline:none;font-size:8.5pt}
-  @media print{body{background:#fff;padding:0}.report-page{margin:0;box-shadow:none;break-after:page;page-break-after:always}.chart-buttons{display:none}.report-page:last-child{page-break-after:auto}}
+  .actions-page .action-editor{min-height:85mm;background:rgba(255,255,255,.96);border:1.5px dashed #9cb1c8;border-radius:12px;padding:6mm;outline:none;font-size:10pt;line-height:1.55}.actions-page .action-editor.small{min-height:35mm;margin-top:5mm}.action-editor:empty::before{content:attr(data-placeholder);color:#94a3b8}.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:5mm}.action-box{min-height:34mm;background:rgba(255,255,255,.96);border-radius:10px;padding:4mm;border:1px solid #e1e8f0;outline:none;font-size:8.5pt}.action-plan-list{display:flex;flex-direction:column;gap:4mm}.action-plan-card{background:rgba(255,255,255,.97);border:1px solid #dfe7ef;border-radius:12px;padding:5mm;break-inside:avoid}.action-plan-head{display:flex;justify-content:space-between;align-items:center;gap:4mm;padding-bottom:3mm;border-bottom:1px solid #e7edf3}.action-plan-head>div:first-child{display:flex;align-items:center;gap:2mm;color:var(--blue-dark);font-size:9pt}.action-plan-number{display:inline-flex;width:6mm;height:6mm;border-radius:50%;align-items:center;justify-content:center;background:var(--blue-dark);color:white;font-size:7pt}.action-plan-meta{display:flex;gap:3mm;flex-wrap:wrap;justify-content:flex-end;color:#64748b;font-size:7.2pt}.action-rich-grid{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:4mm}.action-rich-grid section,.action-notes{background:#fcfdff;border-radius:9px;padding:4mm;border:1px solid #edf2f7}.action-rich-grid h4,.action-notes h4{margin:0 0 2mm;color:var(--blue-dark);font-size:8pt;text-transform:uppercase;letter-spacing:.06em}.action-notes{margin-top:4mm}.rich-content{font-size:8.5pt;line-height:1.45;color:#334155}.rich-content p{margin:0 0 1.5mm}.rich-content ul{margin:1mm 0;padding-left:5mm;list-style:disc}.rich-content ol{margin:1mm 0;padding-left:5mm;list-style:decimal}.rich-content li{margin:.7mm 0}.rich-content span[style*="background"]{padding:0 .5mm;border-radius:2px}
+  @media print{@page{size:A4 portrait;margin:0}html,body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}body{background:#fff;padding:0}.report-page{margin:0;box-shadow:none;break-after:page;page-break-after:always}.chart-buttons{display:none}.report-page:last-child{page-break-after:auto}}
   @media(max-width:900px){body{padding:0}.report-page{width:100%;min-height:100vh;margin:0;box-shadow:none}.kpi-grid,.two-col-summary,.movement-grid,.section-overview,.action-grid{grid-template-columns:1fr}.chart-card-head{flex-direction:column}.page-header{height:auto;min-height:72px}.cover-meta-grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -375,6 +452,8 @@ ${pages.join("\n")}
         const h = (value / maxValue) * plotH;
         const y = margin.top + plotH - usedHeight - h;
         svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + h + '" rx="2" fill="' + (categoryColors[key] || '#2563EB') + '"><title>' + row.label + ' · ' + key + ': ' + value + '</title></rect>';
+        const labelY = y + (h / 2) + 3;
+        svg += '<text x="' + (x + (barW / 2)) + '" y="' + labelY + '" text-anchor="middle" font-size="8" font-weight="800" fill="#ffffff" stroke="rgba(15,35,55,.35)" stroke-width="1.5" paint-order="stroke">' + value + '</text>';
         usedHeight += h;
       });
       svg += '<text x="' + (x + (barW/2)) + '" y="' + (height-23) + '" text-anchor="middle" font-size="8.5" fill="#53687c">' + row.level + '</text>';

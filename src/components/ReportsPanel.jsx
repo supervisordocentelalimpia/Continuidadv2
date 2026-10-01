@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Download, Eye, FileText, Printer } from "lucide-react";
+import { ArrowLeft, CalendarDays, Download, Eye, FileText, Printer } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import {
@@ -34,8 +34,33 @@ export default function ReportsPanel({ analysisData, actionPlans, onBack, onDown
   const frequencies = useMemo(() => getAvailableReportFrequencies(analysisData), [analysisData]);
   const [busyFrequency, setBusyFrequency] = useState("");
   const [error, setError] = useState("");
+  const [dateRanges, setDateRanges] = useState({});
 
-  const reportFor = (frequency) => buildFrequencyReportData(analysisData, frequency);
+  const setRangeField = (frequency, field, value) => {
+    setDateRanges((previous) => ({
+      ...previous,
+      [frequency]: {
+        ...(previous[frequency] || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const reportFor = (frequency) => {
+    const base = buildFrequencyReportData(analysisData, frequency);
+    const custom = dateRanges[frequency] || {};
+    const hasStart = Object.prototype.hasOwnProperty.call(custom, "start");
+    const hasEnd = Object.prototype.hasOwnProperty.call(custom, "end");
+
+    return {
+      ...base,
+      metadata: {
+        ...base.metadata,
+        registrationStart: hasStart ? custom.start : (base.metadata?.registrationStart || ""),
+        registrationEnd: hasEnd ? custom.end : (base.metadata?.registrationEnd || base.metadata?.detectedEndDate || ""),
+      },
+    };
+  };
 
   const handleView = (frequency) => {
     setError("");
@@ -96,6 +121,14 @@ export default function ReportsPanel({ analysisData, actionPlans, onBack, onDown
         {frequencies.map((frequency) => {
           const report = reportFor(frequency);
           const accent = accentForFrequency(frequency);
+          const range = dateRanges[frequency] || {};
+          const endValue = Object.prototype.hasOwnProperty.call(range, "end")
+            ? range.end
+            : (report.metadata?.detectedEndDate || "");
+          const startValue = Object.prototype.hasOwnProperty.call(range, "start")
+            ? range.start
+            : "";
+
           return (
             <article key={frequency} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="h-2" style={{ background: accent }} />
@@ -112,6 +145,21 @@ export default function ReportsPanel({ analysisData, actionPlans, onBack, onDown
                   <div className="bg-slate-50 rounded-xl p-3"><div className="text-2xl font-black text-slate-900">{report.rates.continuity}%</div><div className="text-xs text-slate-500">Continuidad</div></div>
                   <div className="bg-slate-50 rounded-xl p-3"><div className="text-2xl font-black text-slate-900">{report.totals.lost}</div><div className="text-xs text-slate-500">Pérdidas</div></div>
                   <div className="bg-slate-50 rounded-xl p-3"><div className="text-2xl font-black text-slate-900">{report.totals.graduates}</div><div className="text-xs text-slate-500">Graduandos</div></div>
+                </div>
+
+                <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-2 text-xs font-black text-slate-600 uppercase tracking-wide mb-3">
+                    <CalendarDays className="h-4 w-4 text-[#09458A]" /> Rango de inscripción para la portada
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs font-semibold text-slate-600">Inicio
+                      <input type="date" value={startValue} onChange={(e) => setRangeField(frequency, "start", e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Fin
+                      <input type="date" value={endValue} onChange={(e) => setRangeField(frequency, "end", e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal" />
+                    </label>
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500">El fin se intenta detectar de las listas SGA. El inicio se completa aquí porque esa fecha no viene en los PDFs de las listas.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mt-5">
