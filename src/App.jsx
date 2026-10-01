@@ -1,6 +1,7 @@
 // src/App.jsx
 
 import React, {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -56,6 +57,8 @@ import {
   Database,
   ArrowRight,
   Download,
+  ClipboardList,
+  BarChart3,
 } from "lucide-react";
 
 import {
@@ -76,6 +79,26 @@ import {
   FREQUENCIES,
   FREQUENCY_ORDER,
 } from "./utils/frecuencia";
+
+import ReportsPanel from "./components/ReportsPanel";
+import ActionPlansPanel from "./components/ActionPlansPanel";
+
+import {
+  loadActionPlans,
+  saveActionPlans,
+} from "./utils/actionPlans";
+
+import {
+  getAvailableReportFrequencies,
+} from "./utils/reportData";
+
+import {
+  getFrequencyReportFilename,
+} from "./utils/reportGenerator";
+
+import {
+  buildFrequencyReportPdfDefinition,
+} from "./utils/reportPdf";
 
 
 /* =========================================================
@@ -979,7 +1002,8 @@ const sortFilesSmart = (
    ========================================================= */
 
 const parseMany = async (
-  files
+  files,
+  onProgress = () => {}
 ) => {
   const orderedFiles =
     sortFilesSmart(
@@ -990,6 +1014,12 @@ const parseMany = async (
 
   const failed = [];
 
+  onProgress({
+    done: 0,
+    total: orderedFiles.length,
+    current: "",
+  });
+
   for (
     let rank = 0;
     rank <
@@ -998,6 +1028,12 @@ const parseMany = async (
   ) {
     const file =
       orderedFiles[rank];
+
+    onProgress({
+      done: rank,
+      total: orderedFiles.length,
+      current: file?.name || "",
+    });
 
     let list = [];
 
@@ -1084,6 +1120,12 @@ const parseMany = async (
           file.name,
       });
     }
+
+    onProgress({
+      done: rank + 1,
+      total: orderedFiles.length,
+      current: file?.name || "",
+    });
   }
 
   if (!all.length) {
@@ -1114,6 +1156,20 @@ const phoneDigits = (
   );
 
 
+const COMMON_EMAIL_DOMAIN_TYPOS = new Set([
+  "gmil.com",
+  "gmai.com",
+  "gmail.con",
+  "gmail.cim",
+  "gmail.om",
+  "hotmail.cin",
+  "hotmail.con",
+  "hotmai.com",
+  "outlok.com",
+  "icloud.con",
+]);
+
+
 const isLikelyValidEmail = (
   email = ""
 ) => {
@@ -1121,10 +1177,23 @@ const isLikelyValidEmail = (
     return true;
   }
 
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(
-    String(
-      email
-    ).trim()
+  const normalized = String(
+    email
+  ).trim().toLowerCase();
+
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(
+      normalized
+    )
+  ) {
+    return false;
+  }
+
+  const domain =
+    normalized.split("@").pop() || "";
+
+  return !COMMON_EMAIL_DOMAIN_TYPOS.has(
+    domain
   );
 };
 
@@ -1148,6 +1217,60 @@ const isLikelyValidPhone = (
 };
 
 
+const buildQualityIssue = ({
+  period,
+  type,
+  label,
+  student,
+  value = "",
+}) => {
+  const sourceFile =
+    student?.sourceFile ||
+    student?.__fileName ||
+    "Archivo no identificado";
+
+  const sourcePage =
+    Number.isFinite(Number(student?.sourcePage))
+      ? Number(student.sourcePage)
+      : null;
+
+  return {
+    period,
+    type,
+    label,
+    studentName:
+      student?.name ||
+      "Registro sin nombre",
+    studentId:
+      student?.id ||
+      student?.idOriginal ||
+      "N/A",
+    value:
+      value ||
+      "",
+    sourceFile,
+    sourcePage,
+    rowNumber:
+      student?.rowNumber ??
+      null,
+    courseId:
+      student?.courseId ||
+      "N/A",
+    category:
+      student?.category ||
+      "N/A",
+    level:
+      student?.levelNorm ||
+      student?.level ||
+      "N/A",
+    schedule:
+      student?.scheduleBlock ||
+      student?.schedule ||
+      "N/A",
+  };
+};
+
+
 const evaluateParsedDataQuality = ({
   oldAll,
   newAll,
@@ -1157,6 +1280,8 @@ const evaluateParsedDataQuality = ({
   const critical = [];
 
   const warnings = [];
+
+  const issues = [];
 
   if (
     failedOld?.length
@@ -1300,6 +1425,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período anterior: ${unknownFreqOld.length} registro(s) con frecuencia no reconocida.`
     );
+
+    issues.push(...unknownFreqOld.map((student) =>
+      buildQualityIssue({
+        period: "Período anterior",
+        type: "unknown_frequency",
+        label: "Frecuencia no reconocida",
+        student,
+        value: student.frequencyRaw || student.frequencyNorm || "",
+      })
+    ));
   }
 
   if (
@@ -1308,6 +1443,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período nuevo: ${unknownFreqNew.length} registro(s) con frecuencia no reconocida.`
     );
+
+    issues.push(...unknownFreqNew.map((student) =>
+      buildQualityIssue({
+        period: "Período nuevo",
+        type: "unknown_frequency",
+        label: "Frecuencia no reconocida",
+        student,
+        value: student.frequencyRaw || student.frequencyNorm || "",
+      })
+    ));
   }
 
 
@@ -1330,6 +1475,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período anterior: ${scheduleReviewOld.length} registro(s) tienen horario para revisión.`
     );
+
+    issues.push(...scheduleReviewOld.map((student) =>
+      buildQualityIssue({
+        period: "Período anterior",
+        type: "schedule_review",
+        label: "Horario para revisión",
+        student,
+        value: student.scheduleRaw || student.scheduleBlock || "",
+      })
+    ));
   }
 
   if (
@@ -1338,6 +1493,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período nuevo: ${scheduleReviewNew.length} registro(s) tienen horario para revisión.`
     );
+
+    issues.push(...scheduleReviewNew.map((student) =>
+      buildQualityIssue({
+        period: "Período nuevo",
+        type: "schedule_review",
+        label: "Horario para revisión",
+        student,
+        value: student.scheduleRaw || student.scheduleBlock || "",
+      })
+    ));
   }
 
 
@@ -1438,6 +1603,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período anterior: ${badEmailOld.length} correo(s) con formato posiblemente inválido.`
     );
+
+    issues.push(...badEmailOld.map((student) =>
+      buildQualityIssue({
+        period: "Período anterior",
+        type: "invalid_email",
+        label: "Correo con formato posiblemente inválido",
+        student,
+        value: student.email || student.emailRaw || "",
+      })
+    ));
   }
 
   if (
@@ -1446,6 +1621,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período nuevo: ${badEmailNew.length} correo(s) con formato posiblemente inválido.`
     );
+
+    issues.push(...badEmailNew.map((student) =>
+      buildQualityIssue({
+        period: "Período nuevo",
+        type: "invalid_email",
+        label: "Correo con formato posiblemente inválido",
+        student,
+        value: student.email || student.emailRaw || "",
+      })
+    ));
   }
 
 
@@ -1474,6 +1659,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período anterior: ${badPhoneOld.length} teléfono(s) con formato posiblemente inválido.`
     );
+
+    issues.push(...badPhoneOld.map((student) =>
+      buildQualityIssue({
+        period: "Período anterior",
+        type: "invalid_phone",
+        label: "Teléfono con formato posiblemente inválido",
+        student,
+        value: student.phone || "",
+      })
+    ));
   }
 
   if (
@@ -1482,6 +1677,16 @@ const evaluateParsedDataQuality = ({
     warnings.push(
       `Período nuevo: ${badPhoneNew.length} teléfono(s) con formato posiblemente inválido.`
     );
+
+    issues.push(...badPhoneNew.map((student) =>
+      buildQualityIssue({
+        period: "Período nuevo",
+        type: "invalid_phone",
+        label: "Teléfono con formato posiblemente inválido",
+        student,
+        value: student.phone || "",
+      })
+    ));
   }
 
 
@@ -1489,6 +1694,8 @@ const evaluateParsedDataQuality = ({
     critical,
 
     warnings,
+
+    issues,
 
     details: {
       missingIdOld:
@@ -1838,6 +2045,14 @@ const DashboardContinuidad = () => {
   ] = useState(false);
 
   const [
+    processingProgress,
+    setProcessingProgress,
+  ] = useState({
+    old: { done: 0, total: 0, current: "" },
+    current: { done: 0, total: 0, current: "" },
+  });
+
+  const [
     errorMsg,
     setErrorMsg,
   ] = useState("");
@@ -1856,6 +2071,19 @@ const DashboardContinuidad = () => {
     analysisData,
     setAnalysisData,
   ] = useState(null);
+
+  const [
+    actionPlans,
+    setActionPlans,
+  ] = useState(() =>
+    loadActionPlans()
+  );
+
+  useEffect(() => {
+    saveActionPlans(
+      actionPlans
+    );
+  }, [actionPlans]);
 
 
   /* =======================================================
@@ -2142,6 +2370,11 @@ const DashboardContinuidad = () => {
 
     setPdfNewFiles([]);
 
+    setProcessingProgress({
+      old: { done: 0, total: 0, current: "" },
+      current: { done: 0, total: 0, current: "" },
+    });
+
     setAnalysisData(
       null
     );
@@ -2205,17 +2438,32 @@ const DashboardContinuidad = () => {
         true
       );
 
+      setProcessingProgress({
+        old: { done: 0, total: pdfOldFiles.length, current: "" },
+        current: { done: 0, total: pdfNewFiles.length, current: "" },
+      });
+
       const [
         oldResult,
         newResult,
       ] =
         await Promise.all([
           parseMany(
-            pdfOldFiles
+            pdfOldFiles,
+            (progress) =>
+              setProcessingProgress((previous) => ({
+                ...previous,
+                old: progress,
+              }))
           ),
 
           parseMany(
-            pdfNewFiles
+            pdfNewFiles,
+            (progress) =>
+              setProcessingProgress((previous) => ({
+                ...previous,
+                current: progress,
+              }))
           ),
         ]);
 
@@ -2325,6 +2573,11 @@ const DashboardContinuidad = () => {
         details:
           parserQuality
             .details,
+
+        issues:
+          parserQuality
+            .issues ||
+          [],
 
         analysisQuality:
           analysis
@@ -3519,13 +3772,13 @@ const DashboardContinuidad = () => {
     [
       "Total reinscritos",
       stats.reenrolled,
-      `${stats.reenrolledPct}%`,
+      `${Math.round(stats.reenrolledPct)}%`,
     ],
 
     [
       "Total pérdida",
       stats.lost,
-      `${stats.lostPct}%`,
+      `${Math.round(stats.lostPct)}%`,
     ],
 
     [
@@ -3537,7 +3790,7 @@ const DashboardContinuidad = () => {
     [
       "Fuga L01",
       stats.level1Lost,
-      `${stats.level1LostPct}%`,
+      `${Math.round(stats.level1LostPct)}%`,
     ],
 
     [
@@ -3549,17 +3802,17 @@ const DashboardContinuidad = () => {
     [
       "Fuga regulares",
       stats.regularLost,
-      `${stats.regularLostPct}%`,
+      `${Math.round(stats.regularLostPct)}%`,
     ],
 
     [
       "Graduandos",
       stats.graduados,
-      "Adultos L20 anterior que no aparecen en el período nuevo",
+      "Level 18 Niños/Jóvenes y Level 20 Adultos que egresan del programa",
     ],
 
     [
-      "Adultos L20 anterior que reaparecen",
+      "Egresados terminales que reaparecen",
       stats.terminalReappeared,
       "Requieren revisión académica",
     ],
@@ -3609,13 +3862,13 @@ const DashboardContinuidad = () => {
     [
       "Horario con mayor volumen de fuga",
       stats.topHorarioFugas,
-      `${stats.topHorarioFugasCount} de ${stats.topHorarioFugasPrevious} (${stats.topHorarioFugasRate}%)`,
+      `${stats.topHorarioFugasCount} de ${stats.topHorarioFugasPrevious} (${Math.round(stats.topHorarioFugasRate)}%)`,
     ],
 
     [
       "Horario con mayor tasa de fuga",
       stats.topHorarioRate,
-      `${stats.topHorarioRateLost} de ${stats.topHorarioRatePrevious} (${stats.topHorarioRatePct}%)`,
+      `${stats.topHorarioRateLost} de ${stats.topHorarioRatePrevious} (${Math.round(stats.topHorarioRatePct)}%)`,
     ],
 
     [
@@ -5211,6 +5464,80 @@ const DashboardContinuidad = () => {
   };
 
 
+  const downloadFrequencyPdf = async (
+    report,
+    plans = []
+  ) => {
+    const definition =
+      buildFrequencyReportPdfDefinition(
+        report,
+        plans
+      );
+
+    pdfMake
+      .createPdf(
+        definition
+      )
+      .download(
+        getFrequencyReportFilename(
+          report.frequency,
+          "pdf"
+        )
+      );
+  };
+
+
+  /* =======================================================
+     PANELES: REPORTES Y PLANES DE ACCIÓN
+     ======================================================= */
+
+  if (
+    activeTab ===
+      "reports" &&
+    analysisData
+  ) {
+    return (
+      <ReportsPanel
+        analysisData={analysisData}
+        actionPlans={actionPlans}
+        onBack={() =>
+          setActiveTab(
+            "dashboard"
+          )
+        }
+        onDownloadPdf={downloadFrequencyPdf}
+      />
+    );
+  }
+
+
+  if (
+    activeTab ===
+    "actions"
+  ) {
+    return (
+      <ActionPlansPanel
+        plans={actionPlans}
+        onChange={setActionPlans}
+        onBack={() =>
+          setActiveTab(
+            analysisData
+              ? "dashboard"
+              : "upload"
+          )
+        }
+        availableFrequencies={
+          analysisData
+            ? getAvailableReportFrequencies(
+                analysisData
+              )
+            : []
+        }
+      />
+    );
+  }
+
+
   /* =======================================================
      PANTALLA DE CARGA
      ======================================================= */
@@ -5243,6 +5570,25 @@ const DashboardContinuidad = () => {
             Puedes cargar una sola frecuencia, varias frecuencias o todas las listas de Niños, Jóvenes y Adultos al mismo tiempo.
 
           </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              <Database className="h-4 w-4" />
+              Sin límite fijo de PDFs · se procesan uno por uno
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab(
+                  "actions"
+                )
+              }
+              className="inline-flex items-center gap-2 text-xs font-semibold text-[#09458A] bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-100"
+            >
+              <ClipboardList className="h-4 w-4" />
+              Planes de acción
+            </button>
+          </div>
 
         </header>
 
@@ -5533,6 +5879,34 @@ const DashboardContinuidad = () => {
         </div>
 
 
+        {loading && (
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              ["Período anterior", processingProgress.old, "bg-red-500"],
+              ["Período nuevo", processingProgress.current, "bg-emerald-500"],
+            ].map(([label, progress, color]) => {
+              const total = Number(progress?.total || 0);
+              const done = Number(progress?.done || 0);
+              const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+              return (
+                <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3 text-xs mb-2">
+                    <span className="font-bold text-slate-700">{label}</span>
+                    <span className="text-slate-500">{done} / {total}</span>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${color} transition-all`} style={{ width: `${percent}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500 truncate" title={progress?.current || ""}>
+                    {progress?.current ? `Procesando: ${progress.current}` : "Preparando archivos..."}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+
         <div className="mt-6 flex flex-col sm:flex-row gap-3">
 
           <button
@@ -5678,6 +6052,34 @@ const DashboardContinuidad = () => {
 
               PDFs
 
+            </button>
+
+
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab(
+                  "reports"
+                )
+              }
+              className="flex items-center gap-2 bg-[#09458A] hover:bg-[#07396f] text-white px-3 py-2 rounded-lg text-xs font-semibold"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Reportes por frecuencia
+            </button>
+
+
+            <button
+              type="button"
+              onClick={() =>
+                setActiveTab(
+                  "actions"
+                )
+              }
+              className="flex items-center gap-2 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-[#09458A] px-3 py-2 rounded-lg text-xs font-semibold"
+            >
+              <ClipboardList className="h-4 w-4" />
+              Planes de acción
             </button>
 
 
@@ -5972,6 +6374,35 @@ const DashboardContinuidad = () => {
 
             </ul>
 
+            {asArray(
+              qualityData?.issues
+            ).length > 0 && (
+              <details className="mt-4 bg-white/70 border border-amber-200 rounded-lg p-3">
+                <summary className="cursor-pointer font-bold text-amber-900">
+                  Ver detalle de {asArray(qualityData?.issues).length} incidencia(s)
+                </summary>
+                <div className="mt-3 space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {asArray(qualityData?.issues).map((issue, index) => (
+                    <div key={`${issue.type}-${issue.studentId}-${index}`} className="border border-amber-100 bg-white rounded-lg p-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-black text-amber-800">{issue.period}</span>
+                        <span className="text-slate-300">·</span>
+                        <span className="font-bold text-slate-700">{issue.label}</span>
+                      </div>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {issue.studentName} · ID {issue.studentId}
+                      </p>
+                      <div className="mt-1 text-xs text-slate-600 leading-5">
+                        <div><strong>Archivo:</strong> {issue.sourceFile}{issue.sourcePage ? ` · página ${issue.sourcePage}` : ""}</div>
+                        <div><strong>Curso:</strong> {issue.courseId} · {issue.category} · {issue.level} · {issue.schedule}</div>
+                        {issue.value && <div><strong>Valor detectado:</strong> <code className="bg-amber-50 px-1 rounded">{issue.value}</code></div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
           </div>
 
         </div>
@@ -6006,7 +6437,7 @@ const DashboardContinuidad = () => {
 
             <h3 className="text-4xl font-black text-emerald-600">
 
-              {stats.reenrolledPct}%
+              {Math.round(stats.reenrolledPct)}%
 
             </h3>
 
@@ -6049,7 +6480,7 @@ const DashboardContinuidad = () => {
 
             <h3 className="text-4xl font-black text-rose-600">
 
-              {stats.lostPct}%
+              {Math.round(stats.lostPct)}%
 
             </h3>
 
@@ -6128,7 +6559,7 @@ const DashboardContinuidad = () => {
 
               <p className="text-xs text-rose-500">
 
-                {stats.level1LostPct}% de{" "}
+                {Math.round(stats.level1LostPct)}% de{" "}
                 {stats.previousLevel1}
 
               </p>
@@ -6186,7 +6617,7 @@ const DashboardContinuidad = () => {
 
               <p className="text-xs text-slate-500">
 
-                {stats.regularLostPct}% de{" "}
+                {Math.round(stats.regularLostPct)}% de{" "}
                 {stats.regularPrevious}
 
               </p>
@@ -6264,7 +6695,7 @@ const DashboardContinuidad = () => {
           <p className="text-xs text-slate-400">
 
             {stats.topHorarioFugasCount} pérdida(s) ·{" "}
-            {stats.topHorarioFugasRate}%
+            {Math.round(stats.topHorarioFugasRate)}%
 
           </p>
 
@@ -6295,7 +6726,7 @@ const DashboardContinuidad = () => {
 
           <p className="text-xs text-slate-400">
 
-            {stats.topHorarioRatePct}% ·{" "}
+            {Math.round(stats.topHorarioRatePct)}% ·{" "}
 
             {stats.topHorarioRateLost} de{" "}
 
@@ -6498,7 +6929,7 @@ const DashboardContinuidad = () => {
 
               <p className="text-xs text-indigo-500">
 
-                Adultos L20 anterior que no aparecen en el nuevo período
+                Level 18 Niños/Jóvenes · Level 20 Adultos
 
               </p>
 
@@ -6633,7 +7064,7 @@ const DashboardContinuidad = () => {
 
             </strong>{" "}
 
-            {stats.terminalReappeared} estudiante(s) de Adultos L20 del período anterior aparecen nuevamente en el período nuevo. No fueron contados como graduandos.
+            {stats.terminalReappeared} estudiante(s) identificado(s) en un nivel terminal (Level 18 de Niños/Jóvenes o Level 20 de Adultos) aparecen nuevamente en el período nuevo. Se muestran para revisión académica.
 
           </div>
 
