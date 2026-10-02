@@ -1,9 +1,9 @@
 import { buildFrequencyReportHtml } from "./reportGenerator.js";
 
 import {
-  LOGO_LA_LIMPIA_DATA_URL,
   PATTERN_BLUE_DATA_URL,
   PATTERN_PASTEL_DATA_URL,
+  getReportSite,
 } from "./reportAssets.js";
 
 import {
@@ -29,6 +29,14 @@ const FREQUENCY_ACCENTS = {
 };
 
 const asText = (value) => String(value ?? "");
+
+const formatEvaluatedPeriod = (value = "") => {
+  const clean = String(value || "")
+    .trim()
+    .replace(/^PER[IÍ]ODO\s*/i, "")
+    .trim();
+  return clean ? `Período ${clean}` : "Período actual";
+};
 
 const studentRows = (students = [], extra = null) =>
   students.map((student) => [
@@ -120,8 +128,9 @@ const buildStaticChartCanvas = (data = []) => {
 
 export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
   const accent = FREQUENCY_ACCENTS[report.frequency] || BLUE2;
-  const currentPeriod = report.metadata?.currentPeriods?.join(" · ") || "Período actual";
   const previousPeriod = report.metadata?.previousPeriods?.join(" · ") || "Período anterior";
+  const evaluatedPeriod = formatEvaluatedPeriod(report.metadata?.evaluatedPeriod);
+  const site = getReportSite(report.metadata?.siteId);
   const topSchedule = report.analytics?.topScheduleByVolume || {};
   const sectionRows = report.analytics?.sectionRows || [];
   const relevantPlans = (actionPlans || []).filter((plan) => !plan.frequency || plan.frequency === report.frequency);
@@ -129,16 +138,17 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
   const content = [
     {
       stack: [
-        { image: LOGO_LA_LIMPIA_DATA_URL, width: 105, margin: [0, 20, 0, 90] },
+        { image: site.logoDataUrl, width: 105, margin: [0, 20, 0, 90] },
         { canvas: [{ type: "rect", x: 0, y: 0, w: 70, h: 5, color: accent, lineColor: accent }], margin: [0, 0, 0, 18] },
         { text: "INTERIM / STATUS", fontSize: 30, bold: true, color: "#FFFFFF" },
         { text: "REPORT", fontSize: 44, bold: true, color: "#FFFFFF", margin: [0, -2, 0, 28] },
         {
           columns: [
-            { width: "35%", stack: [{ text: "FRECUENCIA", fontSize: 7, color: "#DDEAF7", characterSpacing: 1.2 }, { text: report.frequency, fontSize: 13, bold: true, color: "#FFFFFF", margin: [0, 5, 0, 0] }] },
-            { width: "65%", stack: [{ text: "PERÍODO ACTUAL", fontSize: 7, color: "#DDEAF7", characterSpacing: 1.2 }, { text: currentPeriod, fontSize: 11, bold: true, color: "#FFFFFF", margin: [0, 5, 0, 0] }] },
+            { width: "28%", stack: [{ text: "FRECUENCIA", fontSize: 7, color: "#DDEAF7", characterSpacing: 1.2 }, { text: report.frequency, fontSize: 12, bold: true, color: "#FFFFFF", margin: [0, 5, 0, 0] }] },
+            { width: "27%", stack: [{ text: "PERÍODO EVALUADO", fontSize: 7, color: "#DDEAF7", characterSpacing: 1.2 }, { text: evaluatedPeriod, fontSize: 11, bold: true, color: "#FFFFFF", margin: [0, 5, 0, 0] }] },
+            { width: "45%", stack: [{ text: "SEDE", fontSize: 7, color: "#DDEAF7", characterSpacing: 1.2 }, { text: site.label, fontSize: 11, bold: true, color: "#FFFFFF", margin: [0, 5, 0, 0] }, { text: site.address, fontSize: 6.5, color: "#DDEAF7", margin: [0, 3, 0, 0] }] },
           ],
-          columnGap: 20,
+          columnGap: 10,
         },
       ],
       pageBreak: "after",
@@ -147,7 +157,7 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
     sectionTitle("RESUMEN GENERAL"),
     {
       text: [
-        "Para calcular la continuidad y la deserción estudiantil se compara la matrícula del período anterior con las listas SGA suministradas del período actual. Los estudiantes de ",
+        `Para calcular la continuidad y la deserción estudiantil se compara la matrícula del período anterior con las listas SGA suministradas para ${evaluatedPeriod}. Los estudiantes de `,
         { text: "Level 18 en Niños y Jóvenes", bold: true },
         " y los estudiantes de ",
         { text: "Level 20 en Adultos", bold: true },
@@ -164,7 +174,7 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
         widths: ["*", "*"],
         body: [
           [
-            kpi("Continuidad estudiantil", `${report.rates.continuity}%`, `${report.totals.reenrolled} estudiantes continuaron de ${report.totals.regularForContinuity} regulares para este período.`, "#15803D"),
+            kpi("Continuidad estudiantil", `${report.rates.continuity}%`, `${report.totals.reenrolled} estudiantes continuaron de ${report.totals.regularForContinuity} regulares para ${evaluatedPeriod}.`, "#15803D"),
             kpi("Total pérdida", report.totals.lost, `${report.rates.attrition}% de la base regular para continuidad.`, RED_DARK),
           ],
           [
@@ -179,7 +189,7 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
       },
       layout: "noBorders",
     },
-    { text: `Fuente operativa: listas SGA suministradas · Comparación: ${previousPeriod} → ${currentPeriod}`, fontSize: 7, color: MUTED, margin: [0, 8, 0, 0] },
+    { text: `Fuente operativa: listas SGA suministradas · Sede: ${site.label} · Comparación: ${previousPeriod} → ${evaluatedPeriod}`, fontSize: 7, color: MUTED, margin: [0, 8, 0, 0] },
     { text: "", pageBreak: "after" },
 
     sectionTitle("DESERCIÓN POR NIVEL Y CATEGORÍA"),
@@ -212,7 +222,7 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
     { text: "", pageBreak: "after" },
 
     sectionTitle("ALUMNOS POR SECCIÓN"),
-    { columns: [kpi("Promedio por sección", report.totals.avgDensityRounded, "Estudiantes por salón/sección.", BLUE), kpi("Secciones activas", report.totals.activeSections, "Secciones detectadas en las listas del período actual.", accent)], columnGap: 10, margin: [0, 0, 0, 8] },
+    { columns: [kpi("Promedio por sección", report.totals.avgDensityRounded, "Estudiantes por salón/sección.", BLUE), kpi("Secciones activas", report.totals.activeSections, `Secciones detectadas en las listas de ${evaluatedPeriod}.`, accent)], columnGap: 10, margin: [0, 0, 0, 8] },
     smallTable(
       ["Curso", "Categoría", "Nivel", "Horario", "Teacher", "Salón", "Alumnos"],
       sectionRows.map((row) => [row.courseId, row.category, row.level, row.schedule, row.teacher, row.room, row.students]),
@@ -272,7 +282,7 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
           {
             columns: [
               { text: "INTERIM / STATUS REPORT", color: "#FFFFFF", bold: true, fontSize: 9, margin: [36, -35, 0, 0] },
-              { text: report.frequency, color: "#FFFFFF", bold: true, fontSize: 8, alignment: "right", margin: [0, -35, 36, 0] },
+              { text: `${report.frequency} · ${site.label}`, color: "#FFFFFF", bold: true, fontSize: 8, alignment: "right", margin: [0, -35, 36, 0] },
             ],
           },
         ],
@@ -295,7 +305,7 @@ export function buildFrequencyReportPdfDefinition(report, actionPlans = []) {
     info: {
       title: `Interim Status Report - ${report.frequency}`,
       subject: "Continuidad estudiantil",
-      author: "CEVAZ La Limpia",
+      author: site.name,
     },
   };
 }
@@ -379,6 +389,7 @@ export async function buildExactFrequencyReportPdfDefinition(report, actionPlans
     return buildFrequencyReportPdfDefinition(report, actionPlans);
   }
 
+  const site = getReportSite(report.metadata?.siteId);
   const html = buildFrequencyReportHtml(report, actionPlans);
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
@@ -440,7 +451,7 @@ export async function buildExactFrequencyReportPdfDefinition(report, actionPlans
       info: {
         title: `Interim Status Report - ${report.frequency}`,
         subject: "Continuidad estudiantil",
-        author: "Supervisión Docente",
+        author: `${site.name} · Supervisión Docente`,
       },
     };
   } finally {

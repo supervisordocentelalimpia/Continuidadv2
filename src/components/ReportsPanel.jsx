@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { ArrowLeft, CalendarDays, Download, Eye, FileText, Printer } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, CalendarDays, Download, Eye, FileText, MapPin, Printer } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import {
@@ -10,6 +10,12 @@ import {
   buildFrequencyReportHtml,
   getFrequencyReportFilename,
 } from "../utils/reportGenerator";
+import {
+  REPORT_SITE_OPTIONS,
+  getReportSite,
+} from "../utils/reportAssets";
+
+const REPORT_CONTEXT_KEY = "continuidad_report_context_v2";
 
 const accentForFrequency = (frequency) => ({
   "MARTES Y JUEVES": "#7C3AED",
@@ -30,11 +36,34 @@ const openHtmlReport = (html) => {
   reportWindow.document.close();
 };
 
+const readStoredContext = () => {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(REPORT_CONTEXT_KEY) || "{}");
+    return {
+      evaluatedPeriod: String(parsed?.evaluatedPeriod || ""),
+      siteId: getReportSite(parsed?.siteId || "LL").id,
+    };
+  } catch {
+    return { evaluatedPeriod: "", siteId: "LL" };
+  }
+};
+
 export default function ReportsPanel({ analysisData, actionPlans, onBack, onDownloadPdf }) {
   const frequencies = useMemo(() => getAvailableReportFrequencies(analysisData), [analysisData]);
   const [busyFrequency, setBusyFrequency] = useState("");
   const [error, setError] = useState("");
   const [dateRanges, setDateRanges] = useState({});
+  const [reportContext, setReportContext] = useState(readStoredContext);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(REPORT_CONTEXT_KEY, JSON.stringify(reportContext));
+    } catch {
+      // Si el navegador bloquea localStorage, el reporte sigue funcionando en memoria.
+    }
+  }, [reportContext]);
+
+  const selectedSite = getReportSite(reportContext.siteId);
 
   const setRangeField = (frequency, field, value) => {
     setDateRanges((previous) => ({
@@ -58,6 +87,11 @@ export default function ReportsPanel({ analysisData, actionPlans, onBack, onDown
         ...base.metadata,
         registrationStart: hasStart ? custom.start : (base.metadata?.registrationStart || ""),
         registrationEnd: hasEnd ? custom.end : (base.metadata?.registrationEnd || base.metadata?.detectedEndDate || ""),
+        evaluatedPeriod: reportContext.evaluatedPeriod.trim(),
+        siteId: selectedSite.id,
+        siteName: selectedSite.name,
+        siteLabel: selectedSite.label,
+        siteAddress: selectedSite.address,
       },
     };
   };
@@ -137,6 +171,7 @@ export default function ReportsPanel({ analysisData, actionPlans, onBack, onDown
                   <div>
                     <p className="text-xs font-bold tracking-widest text-slate-400">FRECUENCIA</p>
                     <h2 className="text-xl font-black text-slate-900 mt-1">{frequency}</h2>
+                    <p className="text-xs text-slate-500 mt-1">{selectedSite.label}{reportContext.evaluatedPeriod ? ` · Período ${reportContext.evaluatedPeriod}` : ""}</p>
                   </div>
                   <FileText className="h-7 w-7" style={{ color: accent }} />
                 </div>
@@ -149,17 +184,40 @@ export default function ReportsPanel({ analysisData, actionPlans, onBack, onDown
 
                 <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center gap-2 text-xs font-black text-slate-600 uppercase tracking-wide mb-3">
-                    <CalendarDays className="h-4 w-4 text-[#09458A]" /> Rango de inscripción para la portada
+                    <CalendarDays className="h-4 w-4 text-[#09458A]" /> Datos para el reporte
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="text-xs font-semibold text-slate-600">Inicio
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="text-xs font-semibold text-slate-600">Período a evaluar
+                      <input
+                        type="text"
+                        value={reportContext.evaluatedPeriod}
+                        onChange={(e) => setReportContext((previous) => ({ ...previous, evaluatedPeriod: e.target.value }))}
+                        placeholder="Ej. 5, 6, 5A, 5B"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Sede
+                      <select
+                        value={reportContext.siteId}
+                        onChange={(e) => setReportContext((previous) => ({ ...previous, siteId: e.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal"
+                      >
+                        {REPORT_SITE_OPTIONS.map((site) => (
+                          <option key={site.id} value={site.id}>{site.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Inicio de inscripción
                       <input type="date" value={startValue} onChange={(e) => setRangeField(frequency, "start", e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal" />
                     </label>
-                    <label className="text-xs font-semibold text-slate-600">Fin
+                    <label className="text-xs font-semibold text-slate-600">Fin de inscripción
                       <input type="date" value={endValue} onChange={(e) => setRangeField(frequency, "end", e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-normal" />
                     </label>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">El fin se intenta detectar de las listas SGA. El inicio se completa aquí porque esa fecha no viene en los PDFs de las listas.</p>
+                  <div className="mt-3 flex items-start gap-2 rounded-lg bg-white border border-slate-200 px-3 py-2 text-[11px] text-slate-500">
+                    <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[#09458A]" />
+                    <span><strong className="text-slate-700">{selectedSite.name}</strong> · {selectedSite.address}. Período y sede se aplican a todos los reportes de este análisis; las fechas se configuran por frecuencia.</span>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mt-5">
