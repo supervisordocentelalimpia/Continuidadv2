@@ -220,6 +220,16 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
   const previousPeriod = report.metadata?.previousPeriods?.join(" · ") || "Período anterior";
   const evaluatedPeriod = formatEvaluatedPeriod(report.metadata?.evaluatedPeriod);
   const site = getReportSite(report.metadata?.siteId);
+
+  const siteId = String(report.metadata?.siteId || site?.id || "")
+    .trim()
+    .toUpperCase();
+
+  const coverLogoFilter =
+    siteId === "LM" || siteId === "DG"
+      ? "brightness(0) invert(1)"
+      : "none";
+
   const topSchedule = report.analytics?.topScheduleByVolume || {};
   const chartData = report.analytics?.dropoutByCategoryLevel || [];
   const sections = report.analytics?.sectionRows || [];
@@ -249,7 +259,14 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
 
   page("Portada", `
     <div class="cover-pattern"></div>
-    <div class="cover-logo-wrap"><img class="cover-logo" src="${site.logoDataUrl}" alt="${escapeHtml(site.name)}" /></div>
+    <div class="cover-logo-wrap">
+      <img
+        class="cover-logo"
+        src="${site.logoDataUrl}"
+        alt="${escapeHtml(site.name)}"
+        style="filter:${coverLogoFilter};-webkit-filter:${coverLogoFilter};"
+      />
+    </div>
     <div class="cover-content">
       <div class="cover-rule" style="background:${accent}"></div>
       <div class="cover-overline">INTERIM / STATUS</div>
