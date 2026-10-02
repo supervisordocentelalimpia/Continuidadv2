@@ -1,7 +1,7 @@
 import {
-  LOGO_LA_LIMPIA_DATA_URL,
   PATTERN_BLUE_DATA_URL,
   PATTERN_PASTEL_DATA_URL,
+  getReportSite,
 } from "./reportAssets.js";
 
 import {
@@ -115,6 +115,14 @@ const formatRegistrationMeta = (metadata = {}) => {
   return { rangeLabel, year };
 };
 
+const formatEvaluatedPeriod = (value = "") => {
+  const clean = String(value || "")
+    .trim()
+    .replace(/^PER[IÍ]ODO\s*/i, "")
+    .trim();
+  return clean ? `Período ${clean}` : "Período actual";
+};
+
 const studentRow = (student, extraCells = "") => `
   <tr>
     <td>${escapeHtml(student?.name || "N/A")}</td>
@@ -209,8 +217,9 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
   if (!report) throw new Error("No se recibió información para generar el reporte.");
 
   const accent = FREQUENCY_ACCENTS[report.frequency] || BRAND.blue;
-  const currentPeriod = report.metadata?.currentPeriods?.join(" · ") || "Período actual";
   const previousPeriod = report.metadata?.previousPeriods?.join(" · ") || "Período anterior";
+  const evaluatedPeriod = formatEvaluatedPeriod(report.metadata?.evaluatedPeriod);
+  const site = getReportSite(report.metadata?.siteId);
   const topSchedule = report.analytics?.topScheduleByVolume || {};
   const chartData = report.analytics?.dropoutByCategoryLevel || [];
   const sections = report.analytics?.sectionRows || [];
@@ -231,7 +240,7 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
               <div class="header-kicker">INTERIM / STATUS REPORT</div>
               <div class="header-title">${escapeHtml(title)}</div>
             </div>
-            <div class="header-frequency" style="--accent:${accent}">${escapeHtml(report.frequency)}</div>
+            <div class="header-frequency" style="--accent:${accent}">${escapeHtml(report.frequency)} · ${escapeHtml(site.label)}</div>
           </header>`}
         ${body}
         ${cover ? "" : `<footer class="page-footer"><span>${pageNumber}</span></footer>`}
@@ -240,14 +249,15 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
 
   page("Portada", `
     <div class="cover-pattern"></div>
-    <div class="cover-logo-wrap"><img class="cover-logo" src="${LOGO_LA_LIMPIA_DATA_URL}" alt="CEVAZ La Limpia" /></div>
+    <div class="cover-logo-wrap"><img class="cover-logo" src="${site.logoDataUrl}" alt="${escapeHtml(site.name)}" /></div>
     <div class="cover-content">
       <div class="cover-rule" style="background:${accent}"></div>
       <div class="cover-overline">INTERIM / STATUS</div>
       <div class="cover-report">REPORT</div>
       <div class="cover-meta-grid">
         <div><span>FRECUENCIA</span><strong>${escapeHtml(report.frequency)}</strong></div>
-        <div><span>PERÍODO ACTUAL</span><strong>${escapeHtml(currentPeriod)}</strong></div>
+        <div><span>PERÍODO EVALUADO</span><strong>${escapeHtml(evaluatedPeriod)}</strong></div>
+        <div><span>SEDE</span><strong>${escapeHtml(site.label)}</strong><small>${escapeHtml(site.address)}</small></div>
       </div>
     </div>
     <div class="cover-footer">
@@ -260,10 +270,10 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
   page("RESUMEN GENERAL", `
     <main class="page-body">
       <div class="intro-note">
-        Para calcular la continuidad y la deserción estudiantil se compara la matrícula del período anterior con las listas SGA suministradas del período actual. Los estudiantes de <strong>Level 18 en Niños y Jóvenes</strong> se clasifican como egresados de su categoría, y los estudiantes de <strong>Level 20 en Adultos</strong> también se clasifican como egresados. Estos estudiantes se muestran como <strong>Graduandos</strong> y <strong>no se contabilizan como pérdida o deserción</strong>.
+        Para calcular la continuidad y la deserción estudiantil se compara la matrícula del período anterior con las listas SGA suministradas para <strong>${escapeHtml(evaluatedPeriod)}</strong>. Los estudiantes de <strong>Level 18 en Niños y Jóvenes</strong> se clasifican como egresados de su categoría, y los estudiantes de <strong>Level 20 en Adultos</strong> también se clasifican como egresados. Estos estudiantes se muestran como <strong>Graduandos</strong> y <strong>no se contabilizan como pérdida o deserción</strong>.
       </div>
       <div class="kpi-grid">
-        ${kpiCard("Continuidad estudiantil", `${report.rates.continuity}%`, `<strong>${report.totals.reenrolled}</strong> estudiantes continuaron de <strong>${report.totals.regularForContinuity}</strong> regulares para este período.`, "green")}
+        ${kpiCard("Continuidad estudiantil", `${report.rates.continuity}%`, `<strong>${report.totals.reenrolled}</strong> estudiantes continuaron de <strong>${report.totals.regularForContinuity}</strong> regulares para ${escapeHtml(evaluatedPeriod)}.`, "green")}
         ${kpiCard("Total pérdida", report.totals.lost, `${report.rates.attrition}% de la base regular para continuidad.`, "red")}
         ${kpiCard("Fuga: nuevos vs regulares", `${report.segmentation.level1Lost} / ${report.segmentation.regularLost}`, `Level 01: <strong>${report.rates.newStudentAttrition}%</strong> · Regulares: <strong>${report.rates.regularAttrition}%</strong>.`, "amber")}
         ${kpiCard("Horario con más fugas", topSchedule.schedule || "N/A", `<strong>${topSchedule.lost || 0}</strong> fugas en este bloque.`, "blue")}
@@ -285,7 +295,7 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
           <p>Estudiantes que continuaron, pero cambiaron de frecuencia entre ambos períodos.</p>
         </div>
       </div>
-      <div class="source-note">Fuente operativa: listas SGA suministradas · Comparación: ${escapeHtml(previousPeriod)} → ${escapeHtml(currentPeriod)}</div>
+      <div class="source-note">Fuente operativa: listas SGA suministradas · Sede: ${escapeHtml(site.label)} · Comparación: ${escapeHtml(previousPeriod)} → ${escapeHtml(evaluatedPeriod)}</div>
     </main>
   `);
 
@@ -397,7 +407,7 @@ export function buildFrequencyReportHtml(report, actionPlans = []) {
   .page-header{position:relative;z-index:3;height:21mm;padding:5mm 12mm;background:linear-gradient(180deg,var(--blue-dark),var(--blue-dark));display:flex;align-items:center;justify-content:space-between;color:white}
   .header-kicker{font-size:8pt;letter-spacing:.18em;font-weight:700;opacity:.82}.header-title{font-size:15pt;font-weight:900;margin-top:1mm}.header-frequency{padding:2mm 4mm;border-radius:999px;background:var(--accent);font-size:8.5pt;font-weight:800;letter-spacing:.06em}
   .page-body{position:relative;z-index:2;padding:10mm 12mm 17mm}.page-footer{position:absolute;z-index:4;left:0;right:0;bottom:0;height:10mm;background:linear-gradient(180deg,var(--red-dark),var(--red));display:flex;justify-content:flex-end;align-items:center;padding:0 12mm;color:#fff;font-size:9pt;font-weight:800}.page-footer span{min-width:10mm;text-align:right}
-  .cover-page{background:linear-gradient(180deg,#155EA8 0%,#0D52A0 100%);color:#fff}.cover-pattern{position:absolute;inset:0 0 17mm;background-image:url('${PATTERN_BLUE_DATA_URL}');background-size:cover;background-position:center;opacity:.97}.cover-logo-wrap{position:absolute;top:22mm;left:14mm;width:35mm;height:35mm;display:flex;align-items:center;justify-content:center}.cover-logo{width:100%;height:100%;object-fit:contain}.cover-content{position:absolute;left:16mm;right:14mm;bottom:51mm;z-index:2}.cover-rule{width:25mm;height:2mm;margin-bottom:8mm;border-radius:999px}.cover-overline{font-size:30pt;font-weight:900;line-height:.95;letter-spacing:-.03em}.cover-report{font-size:42pt;font-weight:950;color:#fff;margin-top:2mm;line-height:.95}.cover-meta-grid{display:grid;grid-template-columns:1fr 2fr;gap:10mm;margin-top:10mm;padding-top:7mm;border-top:1px solid rgba(255,255,255,.5)}.cover-meta-grid span{display:block;font-size:7pt;letter-spacing:.22em;opacity:.75}.cover-meta-grid strong{display:block;margin-top:2mm;font-size:12pt;line-height:1.2}.cover-footer{position:absolute;left:0;right:0;bottom:0;height:17mm;background:linear-gradient(180deg,#F4EFEB,#FCF8F5);display:grid;grid-template-columns:1fr 1.6fr .45fr;align-items:center;padding:0 14mm;color:var(--blue-dark);font-weight:900;letter-spacing:.05em}.cover-footer-left{font-size:7.5pt}.cover-footer-range{text-align:center;font-size:8pt}.cover-footer-year{text-align:right;font-size:9pt}
+  .cover-page{background:linear-gradient(180deg,#155EA8 0%,#0D52A0 100%);color:#fff}.cover-pattern{position:absolute;inset:0 0 17mm;background-image:url('${PATTERN_BLUE_DATA_URL}');background-size:cover;background-position:center;opacity:.97}.cover-logo-wrap{position:absolute;top:22mm;left:14mm;width:35mm;height:35mm;display:flex;align-items:center;justify-content:center}.cover-logo{width:100%;height:100%;object-fit:contain}.cover-content{position:absolute;left:16mm;right:14mm;bottom:51mm;z-index:2}.cover-rule{width:25mm;height:2mm;margin-bottom:8mm;border-radius:999px}.cover-overline{font-size:30pt;font-weight:900;line-height:.95;letter-spacing:-.03em}.cover-report{font-size:42pt;font-weight:950;color:#fff;margin-top:2mm;line-height:.95}.cover-meta-grid{display:grid;grid-template-columns:.9fr 1fr 1.4fr;gap:7mm;margin-top:10mm;padding-top:7mm;border-top:1px solid rgba(255,255,255,.5)}.cover-meta-grid span{display:block;font-size:7pt;letter-spacing:.22em;opacity:.75}.cover-meta-grid strong{display:block;margin-top:2mm;font-size:11pt;line-height:1.2}.cover-meta-grid small{display:block;margin-top:1.5mm;font-size:6.5pt;line-height:1.25;opacity:.78}.cover-footer{position:absolute;left:0;right:0;bottom:0;height:17mm;background:linear-gradient(180deg,#F4EFEB,#FCF8F5);display:grid;grid-template-columns:1fr 1.6fr .45fr;align-items:center;padding:0 14mm;color:var(--blue-dark);font-weight:900;letter-spacing:.05em}.cover-footer-left{font-size:7.5pt}.cover-footer-range{text-align:center;font-size:8pt}.cover-footer-year{text-align:right;font-size:9pt}
   .intro-note{background:rgba(255,255,255,.91);border-left:4px solid var(--blue-dark);border-radius:10px;padding:5mm 6mm;line-height:1.55;font-size:9.6pt;box-shadow:0 3px 12px rgba(15,23,42,.05)}.compact-note{margin-bottom:7mm}
   .kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4mm;margin-top:6mm}.kpi-card{background:rgba(255,255,255,.95);border-radius:12px;padding:5mm;border:1px solid rgba(9,69,138,.08);border-top:4px solid #2563eb;min-height:31mm}.kpi-label{font-size:8pt;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:#52657a}.kpi-value{font-size:26pt;font-weight:950;line-height:1;margin:2mm 0}.kpi-detail{font-size:8.3pt;line-height:1.35;color:#607087}.tone-green{border-top-color:#16a34a}.tone-green .kpi-value{color:#15803d}.tone-red{border-top-color:#e61c29}.tone-red .kpi-value{color:#b41620}.tone-amber{border-top-color:#f59e0b}.tone-amber .kpi-value{color:#b45309}.tone-blue{border-top-color:#2563eb}.tone-blue .kpi-value{color:#1d4ed8}.tone-sky{border-top-color:#38bdf8}.tone-sky .kpi-value{color:#0369a1}.tone-indigo{border-top-color:#6366f1}.tone-indigo .kpi-value{color:#4338ca}
   .two-col-summary{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:5mm}.summary-panel{background:rgba(255,255,255,.94);border-radius:12px;padding:5mm}.summary-panel h3{font-size:10pt;margin:0 0 3mm}.metric-line{display:flex;justify-content:space-between;padding:2mm 0;border-bottom:1px solid #edf2f7;font-size:8.6pt}.metric-line strong{font-size:11pt}.big-number{font-size:28pt;font-weight:950;color:var(--blue-dark)}.summary-panel p{font-size:8.5pt;line-height:1.4;color:#607087}.source-note{margin-top:5mm;font-size:7.5pt;color:#6b7280}
